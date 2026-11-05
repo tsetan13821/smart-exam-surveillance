@@ -27,7 +27,8 @@ This file is the main orchestrator for the proctoring application.
 class ProctoringApp:
     # --- MODIFIED: __init__ signature updated (Phase 4) ---
     # Added exam_context=None
-    def __init__(self, logger, face_recognizer, authorized_student_names: list, exam_context=None):
+    def __init__(self, logger, face_recognizer, authorized_student_names: list, exam_context=None,
+                 rois_data=None):
         self.logger = logger
         
         # --- Initialize Processors ---
@@ -43,7 +44,8 @@ class ProctoringApp:
         self.proctoring_analyzer = ProctoringAnalyzer(
             logger=logger,
             authorized_student_names=authorized_student_names,
-            exam_context=exam_context # <-- PASS IT HERE
+            exam_context=exam_context,
+            rois_data=rois_data
         )
         
         # --- Set Loggers for Processors ---

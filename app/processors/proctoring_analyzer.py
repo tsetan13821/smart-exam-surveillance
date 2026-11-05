@@ -54,9 +54,19 @@ class ProctoringAnalyzer:
         self.next_image_id = 1
         
         # --- Cheating Detector ---
-        self.exam_context = exam_context if exam_context is not None else {} 
+        self.exam_context = exam_context if exam_context is not None else {}
         self.cheating_detector = CheatingDetector(self.logger, self.exam_context)
-        
+
+        # In paper-based exams students look down at the paper, so only looking
+        # sideways or up counts as "looking away".
+        self.looking_down_allowed = bool(self.exam_context.get("is_paper_exam", False))
+
+        self.session_start = datetime.now()
+        # A student is "present" only if their face was matched this recently
+        self.PRESENCE_GRACE_SEC = getattr(config, "PRESENCE_GRACE_SEC", 2.0)
+        # Alert if an enrolled student hasn't appeared this long after the session starts
+        self.NO_SHOW_SEC = getattr(config, "STUDENT_NO_SHOW_SEC", 60.0)
+
 
     def analyze_frame(self, frame, tracked_persons, contraband_items, unauthorized_alert_active):
         """
@@ -76,9 +86,14 @@ class ProctoringAnalyzer:
         global_alerts = []
         
         # --- 2. Get Set of Visible, Live, Authorized Students ---
+        # The tracker keeps a person for a few seconds after they vanish (to ride
+        # out missed detections), so presence is based on when the face was last
+        # matched, not on whether the tracker still holds them.
+        now = datetime.now()
         visible_authorized_students = set(
             p.name for p in tracked_persons.values()
             if p.name in self.authorized_student_names and not p.is_spoofing
+            and (now - p.last_seen).total_seconds() <= self.PRESENCE_GRACE_SEC
         )
         
         # --- 3. Process Each Tracked Person ---
@@ -112,8 +127,10 @@ class ProctoringAnalyzer:
                 yaw = person.mp_result.get("yaw", 0)
                 pitch = person.mp_result.get("pitch", 0)
                 
-                if (abs(yaw) > config.CHEATING_GAZE_AWAY_THRESHOLD_YAW or 
-                    abs(pitch) > config.CHEATING_GAZE_AWAY_THRESHOLD_PITCH):
+                # Positive pitch = looking down
+                pitch_away = (-pitch if self.looking_down_allowed else abs(pitch)) \
+                    > config.CHEATING_GAZE_AWAY_THRESHOLD_PITCH
+                if abs(yaw) > config.CHEATING_GAZE_AWAY_THRESHOLD_YAW or pitch_away:
                     is_gaze_away = True
             
             if is_gaze_away:
@@ -157,8 +174,7 @@ class ProctoringAnalyzer:
 
                             if is_inside >= 0:
                                 # This item is ON this person's desk
-                                event = (now, item['label'], item['box'])
-                                person.device_events.append(event)
+                                person.record_device(item['label'], now)
                                 self.logger.log_core_debug(f"Assigned {item['label']} to {person.get_logging_name()} via Desk ROI")
                                 break # Stop checking other persons for this item
             
@@ -175,8 +191,7 @@ class ProctoringAnalyzer:
                             min_dist = dist
                             best_person = person
                     if best_person:
-                        event = (now, item['label'], item['box'])
-                        best_person.device_events.append(event)
+                        best_person.record_device(item['label'], now)
                         self.logger.log_core_debug(f"Assigned {item['label']} to {best_person.get_logging_name()} via Nearest_Person (Fallback)")
 
         # --- 4. Process Per-Student Missing Alerts (Session Logic) ---
@@ -271,7 +286,17 @@ class ProctoringAnalyzer:
                             log_msg = f"Student {student_name} is missing. (Duration: {duration:.1f}s)"
                             self.logger.log_evidence(frame, alert_key, log_msg)
                             state["has_been_logged"] = True
-            
+            else:
+                # Never seen since the session started: flag a no-show.
+                waited = (datetime.now() - self.session_start).total_seconds()
+                if waited >= self.NO_SHOW_SEC:
+                    is_alert_active = True
+                    if not state["has_been_logged"]:
+                        self.logger.log_evidence(
+                            frame, alert_key,
+                            f"Student {student_name} has not appeared since the session started ({waited:.0f}s).")
+                        state["has_been_logged"] = True
+
             state["is_present"] = False
         
         return is_alert_active

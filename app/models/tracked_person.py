@@ -38,8 +38,9 @@ class TrackedPerson:
         self.absent_start_time = None
         self.absent_duration_sec = 0.0
         
-        # Stores (timestamp, label, box) of detected contraband
-        self.device_events = deque(maxlen=20) 
+        # label -> [first_seen, last_seen] of the current continuous sighting
+        # of each device on this student's desk
+        self.device_sightings = {}
         # Stores active cheating rule violations (e.g., "SPOOFING", "DEVICE_USE")
         self.cheating_state = set()
         # --- END NEW ---
@@ -72,6 +73,15 @@ class TrackedPerson:
         self.mp_result = None 
         self.last_seen = datetime.now()
         self.current_alerts = [] # List of active alerts for this person
+
+    def record_device(self, label, now):
+        """Records that `label` was seen on this student's desk at `now`."""
+        max_gap = getattr(config, "CHEATING_DEVICE_GAP_SEC", 3.0)
+        seen = self.device_sightings.get(label)
+        if seen and (now - seen[1]).total_seconds() <= max_gap:
+            seen[1] = now                       # same continuous sighting
+        else:
+            self.device_sightings[label] = [now, now]
 
     @staticmethod
     def _get_centroid(box):

@@ -77,16 +77,22 @@ with st.form("session_form"):
     st.subheader("Exam Context & Rules:")
 
     is_open_book = st.checkbox("Open Book Exam (Allows 'book' detection)")
-    
+    is_paper_exam = st.checkbox(
+        "Paper-based exam (looking down at the desk is normal)",
+        help="When unchecked (screen-based exam), looking down for a sustained time is flagged."
+    )
+
+    # Only devices the object detector can actually recognise (COCO classes)
     allowed_extra = st.multiselect(
         "Allowed Electronic Devices:",
-        options=["cell phone", "laptop", "calculator", "earphone", "tablet", "mouse", "keyboard"],
+        options=["cell phone", "laptop", "mouse", "keyboard"],
         default=None
     )
-    
+
     # Build the context dictionary
     exam_context = {
         "is_open_book": is_open_book,
+        "is_paper_exam": is_paper_exam,
         "allowed_devices": allowed_extra if allowed_extra else []
     }
     

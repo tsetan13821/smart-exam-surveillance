@@ -99,7 +99,10 @@ class PersonTracker:
             # No faces detected. Prune any old trackers.
             to_deregister = []
             for person_id, person in self.tracked_persons.items():
-                
+                # Not seen this frame: drop the stale landmarks so liveness and
+                # gaze aren't judged on a frozen face.
+                person.mp_result = None
+
                 # --- NEW ABSENCE LOGIC (Phase 2) ---
                 if person.absent_start_time is None:
                     person.absent_start_time = datetime.now()
@@ -168,6 +171,7 @@ class PersonTracker:
         for i, person_id in enumerate(existing_ids):
             if i not in used_existing_indices:
                 person = self.tracked_persons[person_id]
+                person.mp_result = None   # not seen this frame: no fresh landmarks
 
                 # --- NEW ABSENCE LOGIC (Phase 2) ---
                 if person.absent_start_time is None:

@@ -23,10 +23,10 @@ class PersonAnalyzer:
         if head_sway_event:
             person.head_sway_timestamps.append(datetime.now())
         
-        # --- (Rest of IMAGE_DETECTED logic is unchanged) ---
+        had_image_id = person.id in image_id_map
         if self._check_person_alert(person, frame, "IMAGE_DETECTED", person.is_spoofing, "Liveness check failed", image_id_map, next_image_id):
-            if person.id in image_id_map: # Check if this was the first time
-                next_image_id += 1 # Increment for the next new image
+            if not had_image_id and person.id in image_id_map:
+                next_image_id += 1  # an ID was assigned just now; the next photo gets a new one
             return ["Image Detected"], next_image_id
             
         return [], next_image_id

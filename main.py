@@ -12,7 +12,26 @@ import app.utils.database as db
 
 # Define the main log directory
 LOG_DIRECTORY = "proctoring_logs"
-    
+DESK_ROI_FILE = "desk_rois.json"
+
+
+def load_desk_rois(path=DESK_ROI_FILE):
+    """
+    Loads per-student desk polygons saved by calibrate_rois.py
+    ({student_name: [[x, y], ...]}). Returns {} if the file is missing,
+    empty or invalid, in which case devices go to the nearest student.
+    """
+    try:
+        with open(path, "r") as f:
+            rois = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    if not isinstance(rois, dict):
+        return {}
+    return {name: pts for name, pts in rois.items()
+            if isinstance(pts, list) and len(pts) >= 3}
+
+
 def main():
     """
     Initializes and runs the proctoring application.
@@ -56,6 +75,10 @@ def main():
         
         for student_id in student_ids:
             student_data = registry.get_student(student_id)
+            if student_data and student_data.get("status") != "approved":
+                print(f"  > REJECTED: Student {student_id} has status "
+                      f"'{student_data.get('status')}', not 'approved'. Skipping.")
+                continue
             if student_data and student_data.get('encodings'):
                 student_name = student_data['name']
                 
@@ -106,11 +129,18 @@ def main():
         )
         
         # --- MODIFIED: Pass exam_context to ProctoringApp (Phase 4) ---
+        rois = load_desk_rois()
+        unknown = [name for name in rois if name not in authorized_student_names]
+        if unknown:
+            print(f"Desk ROIs for students not in this session are ignored: {unknown}")
+        rois = {name: pts for name, pts in rois.items() if name in authorized_student_names}
+
         app = ProctoringApp(
-            logger=logger, 
+            logger=logger,
             face_recognizer=face_recognizer,
             authorized_student_names=authorized_student_names,
-            exam_context=exam_context # <-- PASS THE CONTEXT
+            exam_context=exam_context,
+            rois_data=rois
         )
         app.run()
         

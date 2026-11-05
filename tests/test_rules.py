@@ -72,3 +72,64 @@ def test_desk_roi_flags_items_on_own_desk(clock, logger):
     rois = {"Test Student": [[200, 300], [420, 300], [420, 470], [200, 470]]}
     run = run_session(clock, logger, 6, lambda t: (live(t), [item("cell phone")]), rois=rois)
     assert "Contraband Detected" in run.statuses()
+
+
+# --- Fixes ---------------------------------------------------------------
+
+def test_looking_away_alone_raises_alert_after_5s(clock, logger):
+    run = run_session(clock, logger, 10, lambda t: (live(t, pitch=LOOKING_DOWN), []))
+    t = run.first("Sustained Gaze Away")
+    assert t is not None and 4.9 <= t <= 5.3
+    assert logger.evidence_types().count("GAZE_AWAY") == 1
+
+
+def test_paper_exam_allows_looking_down(clock, logger):
+    ctx = {"is_paper_exam": True, "allowed_devices": []}
+    run = run_session(clock, logger, 20, lambda t: (live(t, pitch=LOOKING_DOWN), []), exam_context=ctx)
+    assert run.statuses() == {"Normal"}
+
+
+def test_paper_exam_still_flags_looking_up(clock, logger):
+    ctx = {"is_paper_exam": True, "allowed_devices": []}
+    run = run_session(clock, logger, 10, lambda t: (live(t, pitch=-LOOKING_DOWN), []), exam_context=ctx)
+    assert "Sustained Gaze Away" in run.statuses()
+
+
+def test_single_frame_phone_detection_is_ignored(clock, logger):
+    """A one-off detection (typically a false positive) must not raise contraband."""
+    run = run_session(clock, logger, 8, lambda t: (live(t), [item("cell phone")] if 1.0 <= t < 1.2 else []))
+    assert run.statuses() == {"Normal"}
+    assert "CONTRABAND_DETECTED" not in logger.evidence_types()
+
+
+def test_device_must_persist_2s_before_contraband(clock, logger):
+    run = run_session(clock, logger, 6, lambda t: (live(t), [item("cell phone")]))
+    t = run.first("Contraband Detected")
+    assert t is not None and 1.9 <= t <= 2.2
+
+
+def test_evidence_logged_once_per_incident(clock, logger):
+    """Phone on the desk for 6 s, away for 3 s, back for 6 s = two incidents, two screenshots."""
+    on = lambda t: t < 6 or t >= 9
+    run_session(clock, logger, 15, lambda t: (live(t), [item("cell phone")] if on(t) else []))
+    assert logger.evidence_types().count("CONTRABAND_DETECTED") == 2
+
+
+def test_image_ids_increment_once_per_photo(clock, logger):
+    run = run_session(clock, logger, 25, lambda t: (mp_result(ear=0.30), []))
+    assert "Image Detected" in run.statuses()
+    assert run.analyzer.next_image_id == 2
+
+
+def test_missing_alert_10s_after_leaving_even_while_tracker_holds_track(clock, logger):
+    run = run_session(clock, logger, 17, lambda t: (live(t), []),
+                      present_fn=lambda t: t < 2.0, keep_stale=True)
+    t = run.first("Student Missing")
+    assert t is not None and 13.9 <= t <= 14.3      # 2 s grace + 10 s threshold after leaving at 2 s
+
+
+def test_student_who_never_arrives_is_flagged(clock, logger):
+    run = run_session(clock, logger, 70, lambda t: (live(t), []), present_fn=lambda t: False)
+    t = run.first("Student Missing")
+    assert t is not None and 59.9 <= t <= 60.3
+    assert any("has not appeared" in m for _, a, m in logger.evidence if a == "STUDENT_MISSING")

@@ -108,12 +108,14 @@ class SessionRun:
 
 def run_session(clock, logger, seconds, frame_fn, *, students=("Test Student",),
                 person_name="Test Student", exam_context=None, rois=None,
-                present_fn=lambda t: True, fps=30):
+                present_fn=lambda t: True, keep_stale=False, items_fn=None, fps=30):
     """
     Drive ProctoringAnalyzer.analyze_frame() for `seconds` of simulated video.
 
     frame_fn(t) -> (mp_result, contraband_items)
     present_fn(t) -> whether the student's face is in view at time t
+    keep_stale: when the student is out of view, keep passing their (no longer
+                updated) track, as PersonTracker does for a few seconds
     """
     from app.models.tracked_person import TrackedPerson
     from app.processors.proctoring_analyzer import ProctoringAnalyzer
@@ -126,6 +128,9 @@ def run_session(clock, logger, seconds, frame_fn, *, students=("Test Student",),
         t = i / fps
         mp, items = frame_fn(t)
         persons = {}
+        if keep_stale:
+            person.mp_result = None            # PersonTracker clears landmarks of unmatched tracks
+            persons = {"Person-1": person}
         if present_fn(t):
             person.update(BOX, person_name, mp)
             persons = {"Person-1": person}

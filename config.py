@@ -58,24 +58,25 @@ HF_MODEL_NAME = "PekingU/rtdetr_r50vd"
 # Confidence threshold for an object to be considered "detected"
 DETECTION_CONFIDENCE_THRESHOLD = 0.7
 
-# List of object classes to detect from the COCO dataset
+# Object classes to detect. RT-DETR is trained on COCO, so only COCO class
+# names work here; earphones, calculators and tablets would need a custom model.
 CLASSES_TO_DETECT = [
-    'person', 
-    'cell phone', 
-    'laptop', 
-    'book', 
-    'earphone', # Note: 'earphone' is not a standard COCO class, but 'headphone' might be.
-    'mouse',           # You may need to retrain or find a model that supports this.
-    'keyboard'           # Using 'cell phone', 'laptop', 'book' as examples.
+    'person',
+    'cell phone',
+    'laptop',
+    'book',
+    'mouse',
+    'keyboard',
 ]
 
-# Subset of detected classes that are considered "contraband"
+# Subset of detected classes that are considered "contraband". Any of them can
+# be allowed for a particular exam from the launcher (exam context).
 CONTRABAND_CLASSES = [
-    'cell phone', 
+    'cell phone',
+    'laptop',
     'book',
-    'earphone', 
     'mouse',
-    'keyboard'
+    'keyboard',
 ]
 
 
@@ -212,20 +213,27 @@ ALERT_THRESHOLDS_SEC = {
 CHEATING_GAZE_AWAY_THRESHOLD_YAW = 25.0
 CHEATING_GAZE_AWAY_THRESHOLD_PITCH = 20.0
 
-# How long (seconds) a device must be seen to be considered a persistent event
+# A device must be seen continuously this long before it counts (filters
+# one-off false detections)
 CHEATING_DEVICE_PERSISTENCE_SEC = 2.0
+# Gaps shorter than this between detections still count as one continuous sighting
+CHEATING_DEVICE_GAP_SEC = 3.0
 
-# How close (pixels) a device must be to a person's centroid to be assigned
-# !! WARNING: This is a temporary, low-robustness solution. !!
-# !! This will be replaced by Desk ROIs in Phase 5.     !!
+# Without desk ROIs (calibrate_rois.py), a device is assigned to the nearest
+# student within this many pixels
 CHEATING_DEVICE_MAX_DISTANCE_PX = 250
 
-# --- NEW: Rule Engine Thresholds (in seconds) ---
-RULE_SPOOF_DURATION = 5.0         # Time a spoof must be active
+# --- Rule Engine Thresholds (in seconds) ---
 RULE_ABSENCE_DURATION = 10.0      # Time a student must be absent
-RULE_GAZE_ONLY_DURATION = 5.0     # Time for gaze-only alert
+RULE_GAZE_ONLY_DURATION = 5.0     # Looking away this long raises "Sustained Gaze Away"
 RULE_GAZE_WITH_DEVICE_DURATION = 3.0 # Shorter time if device is also present
-RULE_DEVICE_DURATION = 5.0        # Time device must be present
+RULE_DEVICE_DURATION = 5.0        # A device stays "present" this long after it was last seen
+
+# --- Presence ---
+# A student counts as present only if their face was matched within this many seconds
+PRESENCE_GRACE_SEC = 2.0
+# Flag an enrolled student who hasn't appeared this long after the session starts
+STUDENT_NO_SHOW_SEC = 60.0
 
 # --- Head Pose Alerting ---
 # Yaw (left/right) degrees to trigger a "peeking" alert
