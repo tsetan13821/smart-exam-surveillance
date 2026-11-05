@@ -15,7 +15,8 @@ def get_models():
     try:
         arcface_model = FaceAnalysis(
             name='buffalo_l',
-            providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
+            providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
+            allowed_modules=['detection', 'recognition']  # only the embedding is used
         )
         arcface_model.prepare(ctx_id=0, det_size=(640, 640))
         print("InsightFace ArcFace (buffalo_l) model loaded.")

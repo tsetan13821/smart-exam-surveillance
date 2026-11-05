@@ -40,17 +40,25 @@ class FaceRecognizer:
         # --- FIX #5: GPU Fallback Logic ---
         gpu_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
         cpu_providers = ['CPUExecutionProvider']
-        
+        # Only face detection and the ArcFace embedding are used; buffalo_l also
+        # ships landmark and gender/age models that would run on every face.
+        modules = getattr(config, "INSIGHTFACE_MODULES", ['detection', 'recognition'])
+
         try:
             # --- Attempt 1: Load with GPU support ---
             self.model = FaceAnalysis(
-                name=model_name, 
-                providers=gpu_providers
+                name=model_name,
+                providers=gpu_providers,
+                allowed_modules=modules
             )
             self.model.prepare(ctx_id=0, det_size=det_size_cfg)
-            print(f"InsightFace model ({model_name}) loaded with GPU support (CUDA).")
-            self.logger.log_activity(f"Face Recognizer loaded with GPU support (CUDAExecutionProvider).")
-            
+            # ONNX Runtime silently falls back to CPU when CUDA isn't usable, so
+            # report the provider that is actually running the model.
+            in_use = self.model.models['recognition'].session.get_providers()
+            device = "GPU (CUDA)" if 'CUDAExecutionProvider' in in_use else "CPU"
+            print(f"InsightFace model ({model_name}, {modules}) running on {device}.")
+            self.logger.log_activity(f"Face Recognizer running on {device} (providers: {in_use}).")
+
         except Exception as e_gpu:
             print(f"WARNING: Failed to load InsightFace with GPU ({e_gpu}).")
             print("--- Falling back to CPU-only mode. ---")
@@ -60,7 +68,8 @@ class FaceRecognizer:
                 # --- Attempt 2: Load with CPU-only support ---
                 self.model = FaceAnalysis(
                     name=model_name,
-                    providers=cpu_providers
+                    providers=cpu_providers,
+                    allowed_modules=modules
                 )
                 self.model.prepare(ctx_id=-1, det_size=det_size_cfg)
                 print(f"InsightFace model ({model_name}) loaded with CPU-only support.")

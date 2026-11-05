@@ -53,6 +53,12 @@ class PersonTracker:
         x1, y1, x2, y2 = box
         return x1 <= x <= x2 and y1 <= y <= y2
 
+    @staticmethod
+    def _expand_box(box, frac):
+        x1, y1, x2, y2 = box
+        dx, dy = (x2 - x1) * frac, (y2 - y1) * frac
+        return (x1 - dx, y1 - dy, x2 + dx, y2 + dy)
+
     # --- Helper 3: Euclidean Distance ---
     @staticmethod
     def _euclidean_dist(p1, p2):
@@ -78,7 +84,9 @@ class PersonTracker:
             # Find an mp_result whose nose tip is inside this box
             for i, mp_res in enumerate(unmatched_mp_results):
                 nose_tip = self._get_mp_nose_tip(mp_res, w, h)
-                if nose_tip and self._is_point_in_box(nose_tip, box):
+                # Face boxes can lag the landmarks by one inference cycle, so
+                # allow some margin around the box when linking them.
+                if nose_tip and self._is_point_in_box(nose_tip, self._expand_box(box, 0.2)):
                     best_match_mp = mp_res
                     best_match_idx = i
                     break # Found a match

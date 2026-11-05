@@ -48,8 +48,13 @@ HUMAN_ACTION_LOG_DIR = "logs/human_actions"
 # 3. OBJECT DETECTOR (RT-DETR)
 # ----------------------------------q----------------------------------------
 
-# Run object detection every N frames. (10 = ~3 times/sec @ 30fps)
-# This saves significant resources.
+# Run RT-DETR and InsightFace in their own thread on the newest frame, so their
+# latency never stalls MediaPipe/liveness (which then run on every frame).
+HEAVY_MODELS_ASYNC = True
+# In async mode, run the heavy models at most this often (seconds) to spare the GPU/CPU
+HEAVY_MODEL_MIN_INTERVAL_SEC = 0.2
+
+# Synchronous mode only (HEAVY_MODELS_ASYNC = False): run object detection every N frames
 OBJECT_DETECTION_INTERVAL = 5
 
 # Hugging Face model name for the object detector
@@ -84,7 +89,7 @@ CONTRABAND_CLASSES = [
 # 4. FACE RECOGNIZER (InsightFace)
 # --------------------------------------------------------------------------
 
-# Run face recognition every N frames.
+# Synchronous mode only: run face recognition every N frames
 FACE_DETECTION_INTERVAL = 5
 
 # Hugging Face model name for InsightFace (e.g., 'buffalo_l', 'buffalo_s')

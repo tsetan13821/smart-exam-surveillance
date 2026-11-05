@@ -98,14 +98,23 @@ def main():
     app.proctoring_analyzer.analyze_frame = timed("Analyzers (liveness + rules)", app.proctoring_analyzer.analyze_frame)
 
     total = []
+    async_mode = getattr(app, "async_inference", False)
     for i, frame in enumerate(frame_source(args.source, args.frames + args.warmup)):
+        if i == args.warmup:
+            for v in stage_ms.values():
+                v.clear()
+            inferences_at_start, t_start = getattr(app, "inference_count", 0), time.perf_counter()
         s = time.perf_counter()
         app.process_frame(frame)
         if i >= args.warmup:
             total.append((time.perf_counter() - s) * 1000)
-        else:
-            for v in stage_ms.values():
-                v.clear()
+        elif async_mode:
+            time.sleep(0.05)   # let the inference thread produce first results during warm-up
+    measured_s = time.perf_counter() - t_start
+    heavy_rate = ((app.inference_count - inferences_at_start) / measured_s) if async_mode else None
+    if async_mode:
+        app.inference_stop.set()
+        app.inference_thread.join(timeout=30)
 
     ort_providers = []
     try:
@@ -119,9 +128,13 @@ def main():
                     "torch_cuda_available": torch.cuda.is_available(),
                     "onnxruntime_providers_in_use": ort_providers,
                     "insightface_models_loaded": sorted(getattr(recognizer.model, "models", {}).keys())},
+        "heavy_models_async": async_mode,
         "frames_measured": len(total),
         "model_load_s": round(load_s, 1),
+        # Rate at which frames go through MediaPipe + liveness + rules. A real
+        # camera caps this at its own frame rate (typically 30).
         "processed_fps": round(1000.0 / np.mean(total), 2),
+        "heavy_model_updates_per_s": round(heavy_rate, 2) if heavy_rate is not None else None,
         "frame_ms_mean": round(float(np.mean(total)), 1),
         "frame_ms_p95": round(float(np.percentile(total, 95)), 1),
         "stages": {},

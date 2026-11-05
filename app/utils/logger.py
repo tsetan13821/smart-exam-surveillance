@@ -186,12 +186,32 @@ class ActivityLogger:
         }
         self.log_queue.put( ("_write_action_log", log_entry) )
 
+    # --- Evidence deferral -------------------------------------------------
+    # Analysers request evidence before the frame has been annotated. Between
+    # begin_frame() and end_frame(annotated) requests are held and then saved
+    # using the annotated frame, so screenshots show the boxes, names and alert
+    # status a proctor needs to see who triggered the alert.
+    def begin_frame(self):
+        self._deferred_evidence = []
+
+    def end_frame(self, annotated_frame):
+        pending = getattr(self, "_deferred_evidence", None) or []
+        self._deferred_evidence = None
+        for alert_type, message, when in pending:
+            self._save_evidence(annotated_frame, alert_type, message, when)
+
     def log_evidence(self, frame, alert_type, message):
         """
-        Saves an evidence frame.
+        Saves an evidence frame (deferred to end_frame() while a frame is being processed).
         """
+        if getattr(self, "_deferred_evidence", None) is not None:
+            self._deferred_evidence.append((alert_type, message, datetime.now()))
+            return None
+        return self._save_evidence(frame, alert_type, message, datetime.now())
+
+    def _save_evidence(self, frame, alert_type, message, when):
         try:
-            timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+            timestamp_str = when.strftime('%Y%m%d_%H%M%S_%f')
             
             # --- MODIFIED: Filename no longer uses student_id ---
             # It's ambiguous in a multi-student session.
@@ -204,7 +224,7 @@ class ActivityLogger:
             cv2.imwrite(evidence_path, frame)
             
             log_entry = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": when.isoformat(),
                 "level": "EVIDENCE",
                 "alert_type": alert_type,
                 "message": message,

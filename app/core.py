@@ -58,6 +58,25 @@ class ProctoringApp:
         self.latest_processed_frame = None
         self.stop_event = threading.Event()
 
+        # --- Heavy-model inference thread ---
+        # RT-DETR and InsightFace take hundreds of ms per frame on CPU. Run in
+        # the processing thread they stall it, and MediaPipe misses blinks
+        # during the stall. In async mode they run in their own thread on the
+        # newest frame, and every processed frame uses their latest results.
+        self.async_inference = getattr(config, "HEAVY_MODELS_ASYNC", True)
+        self.inference_stop = threading.Event()
+        self._inference_lock = threading.Lock()
+        self._inference_frame = None
+        self._inference_results = ([], [], {'boxes': [], 'names': [], 'face_present': False,
+                                            'student_present': False, 'unauthorized_alert_active': False})
+        self.inference_count = 0
+        self.inference_thread = None
+        if self.async_inference:
+            self.object_detector.detection_interval = 1   # the thread itself sets the pace
+            self.face_processor.detection_interval = 1
+            self.inference_thread = threading.Thread(target=self._inference_worker, daemon=True)
+            self.inference_thread.start()
+
         print("Starting processing thread...")
         self.processing_thread = threading.Thread(target=self._processing_worker)
         self.processing_thread.start()
@@ -83,15 +102,45 @@ class ProctoringApp:
             self.logger.log_alert("CAMERA_ERROR", f"FATAL: Cannot open webcam at index {config.CAMERA_INDEX}.")
             raise IOError(f"FATAL: Cannot open webcam at index {config.CAMERA_INDEX}.")
 
+    def _inference_worker(self):
+        """Runs RT-DETR + InsightFace on the newest frame, as often as they can keep up."""
+        min_interval = getattr(config, "HEAVY_MODEL_MIN_INTERVAL_SEC", 0.2)
+        while not self.inference_stop.is_set():
+            with self._inference_lock:
+                frame, self._inference_frame = self._inference_frame, None
+            if frame is None:
+                self.inference_stop.wait(0.005)
+                continue
+            started = time.time()
+            try:
+                persons, contraband_items = self.object_detector.detect(frame)
+                face_results = self.face_processor.detect_faces(frame)
+            except Exception as e:
+                self.logger.log_alert("INFERENCE_ERROR", f"Heavy-model inference failed: {e}")
+                continue
+            with self._inference_lock:
+                self._inference_results = (persons, contraband_items, face_results)
+                self.inference_count += 1
+            remaining = min_interval - (time.time() - started)
+            if remaining > 0:
+                self.inference_stop.wait(remaining)   # cap the rate to spare the GPU/CPU
+
     def process_frame(self, frame):
         h, w, _ = frame.shape
-        
-        # --- 1. Run Detections (Objects and Faces) ---
-        # (ObjectDetector will be updated to run on an interval)
-        persons, contraband_items = self.object_detector.detect(frame) 
-        # (FaceProcessor now runs on an interval and returns smoothed alerts)
-        face_results = self.face_processor.detect_faces(frame) 
-        
+
+        # --- 1. Detections (Objects and Faces) ---
+        if self.async_inference:
+            with self._inference_lock:
+                self._inference_frame = frame.copy()  # newest frame for the inference thread
+                persons, contraband_items, face_results = self._inference_results
+        else:
+            # Synchronous mode: both run here every OBJECT/FACE_DETECTION_INTERVAL frames
+            persons, contraband_items = self.object_detector.detect(frame)
+            face_results = self.face_processor.detect_faces(frame)
+
+        # Evidence requested during analysis is saved after drawing (see logger)
+        getattr(self.logger, "begin_frame", lambda: None)()
+
         # --- 2. Run MediaPipe Landmark Detection ---
         list_of_mp_results = []
         if face_results['boxes']:
@@ -132,6 +181,7 @@ class ProctoringApp:
         )
         
         draw_status_panel(frame, final_classification)
+        getattr(self.logger, "end_frame", lambda f: None)(frame)
         return frame
 
     # --- Processing Worker Thread (Unchanged) ---
@@ -188,12 +238,15 @@ class ProctoringApp:
         print("Shutting down system... signaling worker thread...")
         self.logger.log_core_debug("Cleanup sequence started. Signaling worker thread.") 
         self.stop_event.set()
+        self.inference_stop.set()
 
         try:
             self.processing_thread.join(timeout=5.0)
         except Exception:
             try: self.processing_thread.join()
             except Exception: pass
+        if self.inference_thread is not None:
+            self.inference_thread.join(timeout=10.0)
 
         print("Worker thread stopped. Releasing resources...")
         self.logger.log_core_debug("Worker thread stopped. Releasing resources.") 
