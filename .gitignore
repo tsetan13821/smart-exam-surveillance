@@ -84,6 +84,9 @@ proctoring_logs/
 logs/
 *.jsonl
 
+# Benchmark recordings (contain faces)
+benchmarks/clips/
+
 # Any local configuration overrides (if you use them)
 # config_local.py
 
