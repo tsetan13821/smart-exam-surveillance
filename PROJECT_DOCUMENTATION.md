@@ -125,7 +125,7 @@ Items are assigned to students in one of two ways:
 | Unauthorized Face | Face matching no enrolled student, for 3 s |
 | Student Missing | Present student unseen for 10 s, or no-show 60 s into the session |
 | Peeking Alert | Head turned more than 25° sideways for 5 s |
-| Excessive Movement | More than 20 large head movements within 60 s (each one a shift of more than 10° in the median-smoothed head pose) |
+| Excessive Movement | More than 20 head turns within 60 s. A turn is counted when the median-smoothed head pose moves more than 20° from the student's median pose over the last 30 s, and re-armed once it is back within 10°. |
 
 The status bar shows one classification per frame, in this priority order: Image Detected, Student Missing, Unauthorized Face, Device + Gaze, Contraband, Peeking, Excessive Movement, Sustained Gaze Away, Normal. Each incident saves one evidence screenshot. The trigger re-arms when the condition clears.
 
@@ -204,7 +204,7 @@ Not measured: GPU throughput (no GPU was available).
 
 ### 7.3 Automated tests
 
-`pytest tests` runs 35 tests in about 15 s without loading any model. A simulated clock drives the rule engine, liveness detector, tracker and logger, so time-based behaviour is checked to the frame:
+`pytest tests` runs 37 tests in about 20 s without loading any model. A simulated clock drives the rule engine, liveness detector, tracker and logger, so time-based behaviour is checked to the frame:
 - each alert fires at its threshold and not before
 - open-book and paper-exam contexts behave correctly
 - desk regions assign items to the right student

@@ -51,7 +51,10 @@ class LivenessDetector:
         self.NOISE_K = getattr(config, "LIVENESS_BLINK_NOISE_K", 4.0)
         self.MIN_DROP_RATIO = getattr(config, "LIVENESS_BLINK_MIN_DROP_RATIO", 0.50)
         self.POSE_SMOOTHING_FRAMES = getattr(config, "POSE_SMOOTHING_FRAMES", 5)
-        self.EXCESSIVE_SWAY_THRESHOLD = getattr(config, "EXCESSIVE_MOVEMENT_SWAY_THRESHOLD", 10.0)
+        self.MOVE_THRESHOLD = getattr(config, "EXCESSIVE_MOVEMENT_SWAY_THRESHOLD", 20.0)
+        self.MOVE_REARM = getattr(config, "EXCESSIVE_MOVEMENT_REARM_DEG", 10.0)
+        self.MOVE_BASELINE_SEC = getattr(config, "EXCESSIVE_MOVEMENT_BASELINE_SEC", 30.0)
+        self.MOVE_MIN_BASELINE = 10      # smoothed poses needed before movements are counted
 
         self.logger.log_liveness_debug(
             f"Liveness: blink within {self.CONFIRM_SECONDS}s to confirm, "
@@ -66,7 +69,8 @@ class LivenessDetector:
         self.ear_history = deque()       # (time, ear) samples while eyes are open
         self.closed_since = None
         self.pose_history = deque(maxlen=self.POSE_SMOOTHING_FRAMES)
-        self.movement_reference = None
+        self.pose_baseline = deque()     # (time, smoothed yaw/pitch) over MOVE_BASELINE_SEC
+        self.turned_away = False
         self.person.liveness_state = "UNCONFIRMED"
 
     # ------------------------------------------------------------------ blink
@@ -113,18 +117,33 @@ class LivenessDetector:
         return False
 
     # --------------------------------------------------------------- movement
-    def _detect_large_movement(self, mp_results):
+    def _detect_large_movement(self, mp_results, now):
+        """True once per head turn that takes the face well away from its usual position.
+
+        A movement is counted when the smoothed pose moves more than MOVE_THRESHOLD
+        degrees from the student's own median pose over the last MOVE_BASELINE_SEC,
+        and is re-armed only after the head comes back within MOVE_REARM degrees.
+        Small shifts around the usual position never count, and turning away and
+        back counts once. (Counting every 10 deg step from the previous position made
+        ordinary sitting motion look like dozens of movements a minute.)
+        """
         if mp_results.get("pose_uncertain", True):
             return False
         self.pose_history.append((mp_results["yaw"], mp_results["pitch"]))
         smoothed = np.median(np.array(self.pose_history), axis=0)
-        if self.movement_reference is None:
-            self.movement_reference = smoothed      # first reading is the reference, not (0, 0)
-            return False
-        if np.max(np.abs(smoothed - self.movement_reference)) > self.EXCESSIVE_SWAY_THRESHOLD:
-            self.movement_reference = smoothed
-            return True
-        return False
+
+        while self.pose_baseline and (now - self.pose_baseline[0][0]).total_seconds() > self.MOVE_BASELINE_SEC:
+            self.pose_baseline.popleft()
+        moved = False
+        if len(self.pose_baseline) >= self.MOVE_MIN_BASELINE:
+            usual = np.median(np.array([p for _, p in self.pose_baseline]), axis=0)
+            deviation = float(np.max(np.abs(smoothed - usual)))
+            if not self.turned_away and deviation > self.MOVE_THRESHOLD:
+                self.turned_away = moved = True
+            elif self.turned_away and deviation < self.MOVE_REARM:
+                self.turned_away = False
+        self.pose_baseline.append((now, smoothed))
+        return moved
 
     # ------------------------------------------------------------------- main
     def check_liveness(self, mp_results):
@@ -144,7 +163,7 @@ class LivenessDetector:
             # Not evaluated: keep the previous verdict, don't let the timer run.
             return self.is_spoofing, False
 
-        large_movement = self._detect_large_movement(mp_results)
+        large_movement = self._detect_large_movement(mp_results, now)
         self.unproven_sec += dt
 
         if self._detect_blink(now, mp_results["ear"]):

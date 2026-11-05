@@ -259,4 +259,9 @@ EXCESSIVE_MOVEMENT_TIME_WINDOW_SEC = 60.0
 # Number of movements in the time window to trigger an alert
 EXCESSIVE_MOVEMENT_COUNT_THRESHOLD = 20
 
-EXCESSIVE_MOVEMENT_SWAY_THRESHOLD = 10.0
+# A movement is a head turn of more than this many degrees away from the student's
+# own usual position (median pose over EXCESSIVE_MOVEMENT_BASELINE_SEC). It is
+# counted once, and re-armed when the head comes back within EXCESSIVE_MOVEMENT_REARM_DEG.
+EXCESSIVE_MOVEMENT_SWAY_THRESHOLD = 20.0
+EXCESSIVE_MOVEMENT_REARM_DEG = 10.0
+EXCESSIVE_MOVEMENT_BASELINE_SEC = 30.0

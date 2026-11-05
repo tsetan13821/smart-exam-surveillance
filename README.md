@@ -72,7 +72,7 @@ Alerts are evaluated per person and for the whole session. The status bar shows 
 | Unauthorized Face | A face that doesn't match any enrolled student, for 3 s |
 | Student Missing | An enrolled student who was present hasn't been seen for 10 s, or never arrived within the first 60 s of the session |
 | Peeking Alert | Head turned more than 25° to the side for 5 s |
-| Excessive Movement | More than 20 large head movements within 60 s |
+| Excessive Movement | More than 20 head turns within 60 s, where a turn is the head moving more than 20° away from the student's own usual position (counted once, until the head comes back). Small shifts while reading or writing don't count. |
 
 Each incident saves one evidence screenshot, not one per frame.
 

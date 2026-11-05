@@ -110,14 +110,46 @@ def test_low_frame_rate_still_catches_blinks(clock, logger):
     assert not any(s for _, s in changes)
 
 
-def test_large_head_movement_uses_first_reading_as_reference(clock, logger):
-    p = make_person(logger)
-    det = p.liveness_detector
+def movement_events(clock, person, seconds, pose_fn, fps=FPS):
+    """Count large-movement events while feeding pose_fn(t) -> (yaw, pitch) with normal blinking."""
+    n = 0
+    for i in range(int(seconds * fps)):
+        t = i / fps
+        yaw, pitch = pose_fn(t)
+        n += person.liveness_detector.check_liveness(mp_result(yaw=yaw, pitch=pitch, ear=blinking_ear(t)))[1]
+        clock.advance(1 / fps)
+    return n
+
+
+def test_ordinary_head_motion_is_not_counted_as_movement(clock, logger):
+    """Shifting around by up to ~10 deg (reading, glancing at the keyboard) is not movement."""
     rng = np.random.default_rng(3)
-    events = [det.check_liveness(mp_result(yaw=-15 + rng.normal(0, 1.0), ear=0.3))[1] for _ in range(60)]
-    assert not any(events)                            # sitting turned 15 deg is not "movement"
-    events = [det.check_liveness(mp_result(yaw=5 + rng.normal(0, 1.0), ear=0.3))[1] for _ in range(30)]
-    assert sum(events) == 1                           # one 20 deg turn = one movement
+    p = make_person(logger)
+    n = movement_events(clock, p, 120, lambda t: (-15 + 8 * np.sin(t / 3) + rng.normal(0, 1.5),
+                                                   5 + 5 * np.sin(t / 5) + rng.normal(0, 1.5)))
+    assert n == 0                                     # sitting turned 15 deg is the usual position, not a movement
+
+
+def test_turning_away_and_back_counts_once(clock, logger):
+    p = make_person(logger)
+    def pose(t):
+        if t < 10:
+            return (-15.0, 5.0)                       # usual position
+        return (15.0, 5.0) if (t - 10) % 5 < 1.5 else (-15.0, 5.0)   # 30 deg turn for 1.5 s every 5 s
+    assert movement_events(clock, p, 25, pose) == 3
+
+
+def test_frequent_turning_raises_excessive_movement(clock, logger):
+    calm_rng = np.random.default_rng(7)
+    calm = run_session(clock, logger, 90, lambda t: (
+        mp_result(yaw=6 * np.sin(t / 2) + calm_rng.normal(0, 1.5), ear=blinking_ear(t)), []))
+    assert "Excessive Movement" not in calm.statuses()
+
+    def restless(t):
+        yaw = 30.0 if t > 5 and t % 2 < 0.8 else 0.0  # turns away for 0.8 s every 2 s
+        return mp_result(yaw=yaw, ear=blinking_ear(t)), []
+    t = run_session(clock, logger, 70, restless).first("Excessive Movement")
+    assert t is not None and 45 <= t <= 60            # >20 turns within 60 s, held for 10 s
 
 
 def test_photo_raises_image_detected_alert_with_evidence(clock, logger):
