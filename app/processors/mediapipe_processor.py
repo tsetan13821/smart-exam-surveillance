@@ -50,6 +50,7 @@ class MediaPipeProcessor:
         self.ENABLE_SMOOTHING = getattr(config, "GAZE_ENABLE_SMOOTHING", True)
         self.SMOOTHING_ALPHA = float(getattr(config, "GAZE_SMOOTHING_ALPHA", 0.35))
         self._ema = {"lp": None, "rp": None, "hit": None}
+        self._face_states = []   # per-face temporal state, see _select_face_state()
 
         fm_ctor = mp.solutions.face_mesh.FaceMesh.__init__
         fm_params = list(inspect.signature(fm_ctor).parameters.keys())
@@ -397,6 +398,33 @@ class MediaPipeProcessor:
         sm = self._ema[key]
         return (float(sm[0]), float(sm[1]))
 
+    # --------------------------- Per-face state ---------------------------
+    # Pupil/gaze smoothing and the landmark-presence buffer are temporal, so
+    # with several faces in view each face needs its own copy. Faces are
+    # matched to the previous frame's states by nose-tip position.
+    FACE_STATE_MATCH_PX = 80
+
+    def _select_face_state(self, face_landmarks, h, w, used):
+        lm = face_landmarks.landmark[self.NOSE_TIP_INDEX[0]]
+        nose = (lm.x * w, lm.y * h)
+        best, best_d = None, self.FACE_STATE_MATCH_PX
+        for i, state in enumerate(self._face_states):
+            if i in used:
+                continue
+            d = math.hypot(nose[0] - state["nose"][0], nose[1] - state["nose"][1])
+            if d < best_d:
+                best, best_d = i, d
+        if best is None:
+            state = {"ema": {"lp": None, "rp": None, "hit": None},
+                     "presence": deque(maxlen=self.TEMPORAL_WINDOW)}
+        else:
+            used.add(best)
+            state = self._face_states[best]
+        state["nose"] = nose
+        self._ema = state["ema"]
+        self.presence_buffer = state["presence"]
+        return state
+
     # ------------------------------- Main --------------------------------
     def process(self, frame_rgb):
         self._mp_stats["frames"] += 1
@@ -413,12 +441,15 @@ class MediaPipeProcessor:
             return [] 
 
         if not results.multi_face_landmarks:
-            return [] 
+            self._face_states = []
+            return []
 
         all_face_results = []
-        
+        used_states, new_states = set(), []
+
         for face_landmarks in results.multi_face_landmarks:
-            
+            new_states.append(self._select_face_state(face_landmarks, h, w, used_states))
+
             results_dict = {
                 "face_detected": True,
                 "yaw": 0.0,
@@ -523,6 +554,7 @@ class MediaPipeProcessor:
 
             all_face_results.append(results_dict)
 
+        self._face_states = new_states
         return all_face_results 
 
     def close(self):

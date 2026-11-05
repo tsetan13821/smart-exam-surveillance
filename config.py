@@ -102,9 +102,10 @@ FACE_SIMILARITY_THRESHOLD = 0.50
 # 5. MEDIAPIPE PROCESSOR (Face Mesh)
 # --------------------------------------------------------------------------
 
-# Max number of faces for MediaPipe to track. 
-# For single-student proctoring, 1 is the most efficient.
-MEDIAPIPE_MAX_NUM_FACES = 1
+# Max number of faces FaceMesh analyses per frame (head pose, gaze, blinks).
+# Must be at least the number of students in view: a face without landmarks
+# gets no pose/gaze/liveness analysis. Each extra face costs a few ms per frame.
+MEDIAPIPE_MAX_NUM_FACES = 4
 
 # MediaPipe's internal detection and tracking confidence levels
 MEDIAPIPE_MIN_DET_CONF = 0.5
