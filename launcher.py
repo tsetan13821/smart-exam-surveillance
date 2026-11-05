@@ -22,7 +22,8 @@ st.title("Proctoring Session Launcher 🚀")
 st.caption("Configure and start a new proctoring session.")
 
 # --- 1. Load Student Data (MODIFIED) ---
-@st.cache_data
+# Short TTL so students approved while the launcher is open show up without a restart
+@st.cache_data(ttl=10)
 def load_student_data():
     """
     Fetches all students from the registry and filters
@@ -54,6 +55,8 @@ def load_student_data():
         st.error(f"Error loading students: {e}")
         return []
 
+if st.button("Refresh student list"):
+    load_student_data.clear()
 all_students = load_student_data()
 
 if not all_students:
