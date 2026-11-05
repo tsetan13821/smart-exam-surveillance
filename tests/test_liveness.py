@@ -46,6 +46,22 @@ def test_photo_noise_never_counts_as_a_blink(clock, logger):
     assert sum(1 for _, s in changes if not s) == 1   # never went back to live
 
 
+def test_narrow_eyed_noisy_photo_is_still_flagged(clock, logger):
+    """Small, narrow-eyed face (EAR ~0.05): jitter is ~14% of EAR, beyond the fixed 30% drop's margin."""
+    rng = np.random.default_rng(5)
+    p = make_person(logger)
+    changes = drive(clock, p, 30, lambda t: mp_result(ear=noisy_ear(rng, level=0.05, rel_sd=0.14)))
+    assert changes[-1][1] is True
+    assert sum(1 for _, s in changes if not s) == 1
+
+
+def test_noisy_face_still_confirms_with_real_blinks(clock, logger):
+    rng = np.random.default_rng(6)
+    p = make_person(logger)
+    changes = drive(clock, p, 40, lambda t: mp_result(ear=blinking_ear(t, period=4.0) * (1 + rng.normal(0, 0.12))))
+    assert not any(s for _, s in changes)
+
+
 def test_blinking_person_is_never_flagged(clock, logger):
     rng = np.random.default_rng(2)
     p = make_person(logger)

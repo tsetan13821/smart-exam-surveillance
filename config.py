@@ -166,6 +166,10 @@ LIVENESS_SPOOF_THRESHOLD_SEC = 30.0
 LIVENESS_BLINK_BASELINE_SEC = 3.0
 # A blink starts when EAR falls below this fraction of the baseline...
 LIVENESS_BLINK_DROP_RATIO = 0.70
+# The drop is raised to NOISE_K robust standard deviations of this face's own EAR
+# noise (small or narrow-eyed faces jitter more), but never beyond MIN_DROP_RATIO.
+LIVENESS_BLINK_NOISE_K = 4.0
+LIVENESS_BLINK_MIN_DROP_RATIO = 0.50
 # ...and completes when it recovers above this fraction
 LIVENESS_BLINK_RECOVER_RATIO = 0.85
 # Eyes lower than this for longer (e.g. looking down) re-baseline instead of counting

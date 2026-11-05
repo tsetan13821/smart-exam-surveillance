@@ -16,6 +16,11 @@ class LivenessDetector:
     person's own baseline means narrow eyes, glasses or looking down at a paper
     do not break it the way a fixed EAR threshold does.
 
+    The required drop also adapts to how noisy this face's EAR is: on a small or
+    narrow-eyed face, landmark jitter alone can move EAR by 15%, so a dip only
+    counts if it is LIVENESS_BLINK_NOISE_K robust standard deviations below the
+    baseline (never less than the 30% drop, never more than a 50% drop).
+
     Signals that a photo can imitate are deliberately NOT used as proof of life:
     head-pose changes (a tilted phone fakes them), optical flow (a shaking phone
     fakes it) and categorical gaze flips (they flicker from landmark noise).
@@ -43,6 +48,8 @@ class LivenessDetector:
         self.RECOVER_RATIO = getattr(config, "LIVENESS_BLINK_RECOVER_RATIO", 0.85)
         self.MAX_CLOSED_SEC = getattr(config, "LIVENESS_BLINK_MAX_SEC", 2.0)
         self.MIN_BASELINE_SAMPLES = getattr(config, "LIVENESS_BLINK_MIN_BASELINE_SAMPLES", 5)
+        self.NOISE_K = getattr(config, "LIVENESS_BLINK_NOISE_K", 4.0)
+        self.MIN_DROP_RATIO = getattr(config, "LIVENESS_BLINK_MIN_DROP_RATIO", 0.50)
         self.POSE_SMOOTHING_FRAMES = getattr(config, "POSE_SMOOTHING_FRAMES", 5)
         self.EXCESSIVE_SWAY_THRESHOLD = getattr(config, "EXCESSIVE_MOVEMENT_SWAY_THRESHOLD", 10.0)
 
@@ -64,21 +71,29 @@ class LivenessDetector:
 
     # ------------------------------------------------------------------ blink
     def _baseline_ear(self, now):
+        """(median open-eye EAR, EAR ratio a dip must fall below), or None while warming up."""
         while self.ear_history and (now - self.ear_history[0][0]).total_seconds() > self.BASELINE_SEC:
             self.ear_history.popleft()
         if len(self.ear_history) < self.MIN_BASELINE_SAMPLES:
             return None
-        return float(np.median([e for _, e in self.ear_history]))
+        ears = np.array([e for _, e in self.ear_history])
+        baseline = float(np.median(ears))
+        if baseline <= 0:
+            return None
+        rel_sd = 1.4826 * float(np.median(np.abs(ears - baseline))) / baseline   # robust (MAD) noise
+        drop_ratio = min(self.DROP_RATIO, max(self.MIN_DROP_RATIO, 1.0 - self.NOISE_K * rel_sd))
+        return baseline, drop_ratio
 
     def _detect_blink(self, now, ear):
         """Returns True on the frame where a blink completes (eyes reopen)."""
-        baseline = self._baseline_ear(now)
-        if baseline is None:
+        base = self._baseline_ear(now)
+        if base is None:
             self.ear_history.append((now, ear))
             return False
+        baseline, drop_ratio = base
 
         if self.closed_since is None:
-            if ear < self.DROP_RATIO * baseline:
+            if ear < drop_ratio * baseline:
                 self.closed_since = now          # eyes closing; baseline frozen meanwhile
             else:
                 self.ear_history.append((now, ear))
