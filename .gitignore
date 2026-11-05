@@ -1,0 +1,92 @@
+# .gitignore
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+# Usually these files are created by pyinstaller, if you are using it
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific ignores
+# ----------------------------------------
+
+# Database files (contain sensitive session data)
+*.db
+# SQLite temporary files
+*.db-journal
+
+# Student encodings (contains biometric data)
+student_encodings.json
+
+# Registration face photos awaiting review (biometric data)
+registrations_for_review/
+
+# Log files and evidence (can become very large and contain sensitive images)
+proctoring_logs/
+logs/
+*.jsonl
+
+# Any local configuration overrides (if you use them)
+# config_local.py
+
+# Model cache (downloaded by Hugging Face, can be large)
+# Adjust if your cache directory is different
+# ~/.cache/huggingface/

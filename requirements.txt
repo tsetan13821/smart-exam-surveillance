@@ -1,0 +1,40 @@
+Here is the updated `requirements.txt` file.
+
+This new version cleans up the conflicting dependencies.
+
+1.  **Removed** `deepface`, `tf-keras`, and `tensorflow` as they are not used and would conflict with PyTorch.
+2.  **Removed** `scipy` as the new comparison logic uses `torch.dot` instead.
+3.  **Kept** `facenet-pytorch` because your code still uses its `MTCNN` for face *detection*.
+4.  **Added** `insightface-pytorch`, which provides the new `iresnet100` ArcFace model for face *recognition*.
+
+-----
+
+```
+# requirements.txt
+
+# Core AI and ML libraries
+transformers
+torch
+accelerate
+mediapipe
+facenet-pytorch     # Kept for MTCNN detector
+insightface # NEW: For ArcFace (iresnet100) embeddings
+onnxruntime-gpu==1.16.3
+
+# Image and numerical processing
+opencv-python==4.11.0.86
+numpy==1.26.4
+protobuf==4.25.3
+Pillow
+
+# For configuration management
+pyyaml
+
+# GUI and Data Handling
+streamlit
+pandas
+streamlit-webrtc
+
+# OCR for ID Verification
+pytesseract
+```
