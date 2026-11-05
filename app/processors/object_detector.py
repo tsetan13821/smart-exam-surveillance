@@ -4,6 +4,7 @@ from PIL import Image
 from transformers import RTDetrImageProcessor, RTDetrForObjectDetection
 import config as config
 import cv2
+from app.utils.cpu_threads import heavy_model_threads
 
 class ObjectDetector:
     """
@@ -21,6 +22,10 @@ class ObjectDetector:
         try:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
             self.logger.log_core_debug(f"Object Detector will use device: {self.device}")
+            threads = heavy_model_threads() if self.device == "cpu" else None
+            if threads:
+                torch.set_num_threads(threads)
+                self.logger.log_core_debug(f"Object Detector limited to {threads} CPU threads.")
 
             self.processor = RTDetrImageProcessor.from_pretrained(config.HF_MODEL_NAME)
             self.model = RTDetrForObjectDetection.from_pretrained(config.HF_MODEL_NAME).to(self.device)

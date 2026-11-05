@@ -53,6 +53,10 @@ HUMAN_ACTION_LOG_DIR = "logs/human_actions"
 HEAVY_MODELS_ASYNC = True
 # In async mode, run the heavy models at most this often (seconds) to spare the GPU/CPU
 HEAVY_MODEL_MIN_INTERVAL_SEC = 0.2
+# On CPU in async mode, cap the threads each heavy model may use so they share the
+# CPU with the per-frame thread instead of starving it (None = a quarter of the
+# logical cores). Without the cap, PyTorch and ONNX Runtime each claim every core.
+CPU_HEAVY_MODEL_THREADS = None
 
 # Synchronous mode only (HEAVY_MODELS_ASYNC = False): run object detection every N frames
 OBJECT_DETECTION_INTERVAL = 5

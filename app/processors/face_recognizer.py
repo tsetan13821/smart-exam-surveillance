@@ -4,6 +4,7 @@ import numpy as np
 import insightface
 from insightface.app import FaceAnalysis
 import config as config
+from app.utils.cpu_threads import heavy_model_threads
 
 # --- FIX #6: Removed hard-coded threshold ---
 # SIMILARITY_THRESHOLD = 0.55 (This is now loaded from config in __init__)
@@ -17,6 +18,27 @@ class FaceRecognizer:
     and their encodings. It finds the best match from this entire "known" pool.
     """
     
+    def _limit_cpu_threads(self):
+        """On CPU in async mode, reload the ONNX sessions with a capped thread pool.
+
+        InsightFace doesn't pass session options through, and ONNX Runtime's
+        default pool (one busy-waiting thread per core) starves the per-frame
+        MediaPipe thread. See app/utils/cpu_threads.py.
+        """
+        threads = heavy_model_threads()
+        if not threads:
+            return
+        import onnxruntime as ort
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = threads
+        opts.inter_op_num_threads = 1
+        opts.add_session_config_entry("session.intra_op.allow_spinning", "0")
+        for model in self.model.models.values():
+            if model.session.get_providers() == ['CPUExecutionProvider']:
+                model.session = ort.InferenceSession(model.model_file, sess_options=opts,
+                                                     providers=['CPUExecutionProvider'])
+        self.logger.log_activity(f"Face Recognizer limited to {threads} CPU threads.")
+
     def __init__(self, logger, authorized_encodings: dict):
         """
         Initializes the recognizer for a multi-student session.
@@ -80,7 +102,7 @@ class FaceRecognizer:
                 self.logger.log_alert("FATAL_ERROR", f"FATAL: Failed to load InsightFace on CPU: {e_cpu}")
                 raise # Re-raise the exception to stop the application
         # --- END FIX ---
-
+        self._limit_cpu_threads()
 
         # --- Multi-Student Encoding Loader (Unchanged) ---
         self.known_encodings_normalized = [] # A flat list of all encodings
