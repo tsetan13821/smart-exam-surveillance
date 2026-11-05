@@ -149,37 +149,30 @@ MEDIAPIPE_TEMPORAL_WINDOW = 5
 # 6. LIVENESS & SPOOF DETECTOR
 # --------------------------------------------------------------------------
 
-# --- Liveness Event Settings (Blinks, Head Sway) ---
-# Time (seconds) a person has to prove liveness upon first appearing
-LIVENESS_CONFIRM_SECONDS = 3.0
+# Proof of life is an adaptive blink (see app/processors/liveness_detector.py).
+# Head pose, optical flow and gaze changes are not used: a tilted or shaking
+# phone showing a photo imitates them (measured with benchmarks/liveness_benchmark.py).
 
-# Time (seconds) of no liveness events before triggering a "Spoof" alert
-LIVENESS_SPOOF_THRESHOLD_SEC = 7.0
+# Seconds a newly seen face has to blink before it is treated as a photo
+LIVENESS_CONFIRM_SECONDS = 8.0
 
-# Eye Aspect Ratio (EAR) for liveness blink check
-REG_LIVENESS_BLINK_EAR = 0.22
-LIVENESS_BLINK_MIN_FRAMES = 2  # Min frames eyes must be "closed"
-LIVENESS_BLINK_HYSTERESIS = 0.02 # Value added to threshold to reopen
+# Seconds a confirmed-live student can go without blinking before being flagged.
+# People concentrating on a screen can go 10-20 s between blinks.
+LIVENESS_SPOOF_THRESHOLD_SEC = 30.0
 
-# Head pose change (degrees) to count as a liveness event
-LIVENESS_HEAD_SWAY_THRESHOLD = 2.5 
+# Rolling window (seconds) for the person's own open-eye EAR baseline
+LIVENESS_BLINK_BASELINE_SEC = 3.0
+# A blink starts when EAR falls below this fraction of the baseline...
+LIVENESS_BLINK_DROP_RATIO = 0.70
+# ...and completes when it recovers above this fraction
+LIVENESS_BLINK_RECOVER_RATIO = 0.85
+# Eyes lower than this for longer (e.g. looking down) re-baseline instead of counting
+LIVENESS_BLINK_MAX_SEC = 2.0
+# Minimum open-eye samples needed before blinks can be detected
+LIVENESS_BLINK_MIN_BASELINE_SAMPLES = 5
 
-# --- Pixel-Based Liveness (SSIM / Optical Flow) ---
-# Size of the sliding window (in frames) for SSIM/Flow analysis
-LIVENESS_SSIM_WINDOW_FRAMES = 60
-LIVENESS_FLOW_WINDOW_FRAMES = 60
-
-# SSIM score above which is "too static" (suspicious)
-LIVENESS_SSIM_STATIC_THRESHOLD = 0.98
-
-# Optical Flow score *below* which is "too static"
-# UPDATE: This is now used as a *positive* liveness signal.
-# Flow *above* this threshold resets the liveness timer.
-LIVENESS_FLOW_STATIC_THRESHOLD = 0.4 
-
-# --- Other ---
-# Number of frames MediaPipe can be missing before we trust a spoof alert
-LIVENESS_MP_MISSING_THRESHOLD = 3
+# Head pose is median-smoothed over this many frames before movement checks
+POSE_SMOOTHING_FRAMES = 5
 
 
 # --------------------------------------------------------------------------
@@ -197,8 +190,9 @@ ALERT_THRESHOLDS_SEC = {
     # Time a student must be missing before alert
     "STUDENT_MISSING": 10.0,
     
-    # Time liveness checks must fail before logging
-    "IMAGE_DETECTED": 5.0,
+    # Seconds a face must stay judged as a photo before evidence is saved
+    # (the liveness verdict itself already needs LIVENESS_CONFIRM_SECONDS without a blink)
+    "IMAGE_DETECTED": 2.0,
     
     # (Example of other alerts you could add)
     # "HEAD_DOWN_ALERT": 5.0, # <-- REMOVED

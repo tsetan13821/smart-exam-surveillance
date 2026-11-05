@@ -17,11 +17,7 @@ class PersonAnalyzer:
         NOW ALSO tracks head sway events for frequency analysis.
         """
         # --- MODIFIED: Unpack two return values ---
-        person.is_spoofing, head_sway_event = person.liveness_detector.check_liveness(
-            person.mp_result, 
-            frame, 
-            person.box
-        )
+        person.is_spoofing, head_sway_event = person.liveness_detector.check_liveness(person.mp_result)
         
         # --- NEW: Track head sway events ---
         if head_sway_event:

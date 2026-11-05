@@ -91,10 +91,9 @@ class MediaPipeProcessor:
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
             l_eq = clahe.apply(l)
             lab_eq = cv2.merge((l_eq, a, b))
-            eq_rgb = cv2.cvtColor(lab_eq, cv2.COLOR_LAB2RGB)
-            kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-            sharp = cv2.filter2D(eq_rgb, -1, kernel)
-            return sharp
+            # Contrast equalisation only. A sharpening pass used to follow here,
+            # but it amplified camera noise and tripled landmark jitter.
+            return cv2.cvtColor(lab_eq, cv2.COLOR_LAB2RGB)
         except Exception:
             return frame_rgb 
 
@@ -129,9 +128,10 @@ class MediaPipeProcessor:
                 if used < self.PRESENCE_THRESHOLD:
                     continue
 
-                x_pix = int(lm.x * w)
-                y_pix = int(lm.y * h)
-                coords.append((x_pix, y_pix))
+                # Keep sub-pixel precision. Rounding to whole pixels made head
+                # pose jump by several degrees and EAR by ~30% between frames
+                # on small faces, which swamped the liveness signals.
+                coords.append((lm.x * w, lm.y * h))
 
             except Exception as e:
                 return None, f"Error accessing landmark {idx}: {e}"
