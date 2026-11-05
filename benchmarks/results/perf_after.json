@@ -1,0 +1,46 @@
+{
+  "machine": {
+    "platform": "Windows-10-10.0.26300-SP0",
+    "processor": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+    "torch_device": "cpu",
+    "torch_cuda_available": false,
+    "onnxruntime_providers_in_use": [
+      "CPUExecutionProvider"
+    ],
+    "insightface_models_loaded": [
+      "detection",
+      "recognition"
+    ]
+  },
+  "heavy_models_async": true,
+  "camera_fps": 30.0,
+  "seconds_measured": 60.0,
+  "model_load_s": 5.2,
+  "analysed_fps": 30.01,
+  "max_gap_ms": 51.7,
+  "gap_ms_p95": 40.2,
+  "heavy_model_updates_per_s": 0.87,
+  "frame_ms_mean": 15.0,
+  "stages": {
+    "Tracker": {
+      "mean_ms_per_frame": 0.1,
+      "ms_per_inference": 0.1
+    },
+    "Analyzers (liveness + rules)": {
+      "mean_ms_per_frame": 0.3,
+      "ms_per_inference": 0.3
+    },
+    "RT-DETR (object detection)": {
+      "mean_ms_per_frame": 946.0,
+      "ms_per_inference": 946.0
+    },
+    "InsightFace (face detect + identify)": {
+      "mean_ms_per_frame": 197.5,
+      "ms_per_inference": 197.5
+    },
+    "MediaPipe FaceMesh + pose/gaze": {
+      "mean_ms_per_frame": 12.7,
+      "ms_per_inference": 12.7
+    }
+  }
+}
