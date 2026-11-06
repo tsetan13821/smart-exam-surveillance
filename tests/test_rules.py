@@ -108,6 +108,34 @@ def test_device_must_persist_2s_before_contraband(clock, logger):
     assert t is not None and 1.9 <= t <= 2.2
 
 
+def test_phone_held_low_is_flagged_when_student_is_alone(clock, logger):
+    """A phone in the lap is far below the face (here ~280 px); with one person in view it is still theirs."""
+    lap_phone = item("cell phone", box=[420, 440, 480, 480])
+    run = run_session(clock, logger, 6, lambda t: (live(t), [lap_phone]))
+    t = run.first("Contraband Detected")
+    assert t is not None and 1.9 <= t <= 2.2
+
+
+def _person(pid, box, logger):
+    from app.models.tracked_person import TrackedPerson
+    return TrackedPerson(pid, pid, box, logger)
+
+
+def test_device_goes_to_the_nearest_of_several_people(logger):
+    from app.processors.proctoring_analyzer import ProctoringAnalyzer
+    left = _person("Left", [100, 100, 200, 220], logger)      # faces 120 px tall
+    right = _person("Right", [800, 100, 900, 220], logger)
+    people = {"Left": left, "Right": right}
+    assert ProctoringAnalyzer.device_owner((870, 600), people) is right   # ~440 px below, within 4 face heights
+    assert ProctoringAnalyzer.device_owner((150, 500), people) is left
+
+
+def test_device_far_from_everyone_belongs_to_nobody(logger):
+    from app.processors.proctoring_analyzer import ProctoringAnalyzer
+    people = {"A": _person("A", [100, 100, 160, 160], logger), "B": _person("B", [300, 100, 360, 160], logger)}
+    assert ProctoringAnalyzer.device_owner((1200, 700), people) is None      # beyond 4 face heights and 250 px
+
+
 def test_evidence_logged_once_per_incident(clock, logger):
     """Phone on the desk for 6 s, away for 3 s, back for 6 s = two incidents, two screenshots."""
     on = lambda t: t < 6 or t >= 9

@@ -68,6 +68,29 @@ class ProctoringAnalyzer:
         self.NO_SHOW_SEC = getattr(config, "STUDENT_NO_SHOW_SEC", 60.0)
 
 
+    @staticmethod
+    def device_owner(item_centroid, tracked_persons):
+        """
+        The person a device belongs to when no desk regions are set, or None.
+
+        With one person in view, every device in the frame is within their reach.
+        With several, it goes to the nearest face, within a distance measured in
+        face heights so it holds at any resolution and camera distance: a phone
+        held in the lap is well over 250 px below the face in 720p video.
+        """
+        persons = list(tracked_persons.values())
+        if len(persons) == 1:
+            return persons[0]
+        best, best_dist = None, None
+        for person in persons:
+            face_height = max(1, person.box[3] - person.box[1])
+            limit = max(getattr(config, "CHEATING_DEVICE_MAX_DISTANCE_PX", 250),
+                        getattr(config, "CHEATING_DEVICE_MAX_DISTANCE_FACES", 4.0) * face_height)
+            dist = PersonTracker._euclidean_dist(item_centroid, person.centroid)
+            if dist <= limit and (best_dist is None or dist < best_dist):
+                best, best_dist = person, dist
+        return best
+
     def analyze_frame(self, frame, tracked_persons, contraband_items, unauthorized_alert_active):
         """
         Main entry point for the analyzer.
@@ -181,15 +204,9 @@ class ProctoringAnalyzer:
             # --- Logic 2: Fallback to "Nearest Person" ---
             else:
                 for item in contraband_items:
-                    item_centroid = ( (item['box'][0] + item['box'][2]) // 2, 
+                    item_centroid = ( (item['box'][0] + item['box'][2]) // 2,
                                     (item['box'][1] + item['box'][3]) // 2 )
-                    best_person = None
-                    min_dist = getattr(config, "CHEATING_DEVICE_MAX_DISTANCE_PX", 250) 
-                    for person in tracked_persons.values():
-                        dist = PersonTracker._euclidean_dist(item_centroid, person.centroid)
-                        if dist < min_dist:
-                            min_dist = dist
-                            best_person = person
+                    best_person = self.device_owner(item_centroid, tracked_persons)
                     if best_person:
                         best_person.record_device(item['label'], now)
                         self.logger.log_core_debug(f"Assigned {item['label']} to {best_person.get_logging_name()} via Nearest_Person (Fallback)")
