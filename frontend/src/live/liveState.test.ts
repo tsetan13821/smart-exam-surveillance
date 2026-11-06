@@ -62,6 +62,9 @@ describe("liveReducer", () => {
     });
     expect(s.status?.live?.fps).toBe(30);
 
+    s = apply(s, { type: "message", message: { type: "state", session: session("s1", "stopping") } });
+    expect(s.status?.live?.fps).toBe(30); // the last presence stays on screen while it stops
+
     s = apply(s, { type: "message", message: log(2) });
     s = apply(s, { type: "message", message: { type: "state", session: session("s1", "ended") } });
     expect(s.status).toEqual({ state: "idle", session: null, last_session: session("s1", "ended"), live: null });
