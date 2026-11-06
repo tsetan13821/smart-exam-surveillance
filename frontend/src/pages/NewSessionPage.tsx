@@ -236,7 +236,7 @@ export function NewSessionPage() {
                   <span className="truncate">{s.label}</span>
                 </label>
               ))}
-              {sourceList.length === 1 && (
+              {sources.isSuccess && !sourceList.some((s) => s.type === "video") && (
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   To run on a recording instead, put video files in the <code className="font-mono">demo_videos</code> folder.
                 </p>

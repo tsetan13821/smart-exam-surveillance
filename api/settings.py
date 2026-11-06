@@ -27,4 +27,6 @@ class Settings:
     max_login_failures: int = 5
     login_lockout_seconds: int = 60
     demo_video_dir: str = field(default_factory=lambda: config.DEMO_VIDEO_DIR)
+    # SMARTSQUAD_DISABLE_CAMERA=1 where there is no webcam (e.g. the Docker demo): only videos are offered
+    camera_enabled: bool = field(default_factory=lambda: os.environ.get("SMARTSQUAD_DISABLE_CAMERA") != "1")
     frontend_dist: str = field(default_factory=lambda: os.path.join(config.BASE_DIR, "frontend", "dist"))
