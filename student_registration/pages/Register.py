@@ -1,8 +1,6 @@
 # pages/1_📝_Register.py
 import streamlit as st
 import cv2
-import numpy as np
-import json
 import os
 import uuid
 import time

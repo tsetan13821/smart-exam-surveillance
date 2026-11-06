@@ -1,7 +1,5 @@
 # app/processors/face_processor.py
-import cv2
 import config as config
-import numpy as np
 
 class FaceProcessor:
     """

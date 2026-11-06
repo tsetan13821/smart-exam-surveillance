@@ -1,7 +1,5 @@
 import cv2
-import mediapipe as mp
 import numpy as np
-import math
 
 # --- REMOVED Landmark Contours ---
 # Per your request, the eye and lip contour lists are removed.

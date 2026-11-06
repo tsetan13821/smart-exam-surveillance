@@ -7,7 +7,6 @@ This file centralizes all tunable parameters for the proctoring application.
 
 import os
 
-import numpy as np
 
 # --------------------------------------------------------------------------
 # 1. CORE APPLICATION & DATABASE

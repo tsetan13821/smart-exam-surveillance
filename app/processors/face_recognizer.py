@@ -1,7 +1,5 @@
 # app/processors/face_recognizer.py
-import cv2
 import numpy as np
-import insightface
 from insightface.app import FaceAnalysis
 import config as config
 from app.utils.cpu_threads import heavy_model_threads
@@ -49,7 +47,7 @@ class FaceRecognizer:
                                          and values are lists of their encodings.
                                          e.g., {"Alice": [enc1, enc2], "Bob": [enc3]}
         """
-        print(f"Initializing Face Recognizer (InsightFace/ONNX) for multi-student session.")
+        print("Initializing Face Recognizer (InsightFace/ONNX) for multi-student session.")
         self.logger = logger
 
         # --- FIX #6: Load threshold from config ---

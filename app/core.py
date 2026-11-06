@@ -1,18 +1,15 @@
 # app/core.py
 import cv2
 import config as config
-from datetime import datetime
 import threading
 import queue
 import time
 from collections import deque
-import numpy as np
 
 # --- Processor Imports ---
 from app.processors.object_detector import ObjectDetector
 from app.processors.mediapipe_processor import MediaPipeProcessor
 from app.processors.face_processor import FaceProcessor
-from app.processors.face_recognizer import FaceRecognizer
 # --- Refactored Imports ---
 from app.processors.person_tracker import PersonTracker
 from app.processors.proctoring_analyzer import ProctoringAnalyzer
