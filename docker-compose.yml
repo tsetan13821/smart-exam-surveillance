@@ -12,6 +12,8 @@ services:
     environment:
       SMARTSQUAD_ADMIN_USER: ${SMARTSQUAD_ADMIN_USER:-proctor}
       SMARTSQUAD_ADMIN_PASSWORD: ${SMARTSQUAD_ADMIN_PASSWORD:?Set SMARTSQUAD_ADMIN_PASSWORD in .env (see .env.example)}
+      # Times are recorded in the server's local time, so it must match the proctors' timezone
+      TZ: ${TZ:?Set TZ in .env to your timezone, e.g. Asia/Kolkata (see .env.example)}
     volumes:
       - smartsquad-data:/data
       - ./demo_videos:/videos:ro

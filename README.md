@@ -222,7 +222,7 @@ A session can also be run without the web console, in an OpenCV window (press `q
 The image runs the API and console on CPU with the model weights built in, so nothing else needs installing. A container can't reach the host's webcam on Windows or macOS, so in Docker the console proctors recorded videos only.
 
 ```powershell
-Copy-Item .env.example .env          # then set SMARTSQUAD_ADMIN_PASSWORD in .env
+Copy-Item .env.example .env          # then set SMARTSQUAD_ADMIN_PASSWORD and TZ (your timezone) in .env
 New-Item -ItemType Directory -Force demo_videos
 # copy one or more .mp4 recordings into demo_videos
 docker compose up --build            # first build downloads about 2 GB; then open http://localhost:8000
