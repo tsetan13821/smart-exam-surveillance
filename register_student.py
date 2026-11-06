@@ -10,24 +10,9 @@ from PIL import Image
 
 # --- REMOVED torch and facenet_pytorch imports ---
 
-# Define the path for our database file
-ENCODING_DB_PATH = "student_encodings.json"
+import app.utils.database as db
+from app.utils import students_db
 
-def load_encodings(db_path):
-    """Loads the encoding database from a JSON file."""
-    if os.path.exists(db_path):
-        with open(db_path, 'r') as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                print(f"Warning: {db_path} is corrupt. Starting fresh.")
-                return {}
-    return {}
-
-def save_encodings(db_path, data):
-    """Saves the encoding database to a JSON file."""
-    with open(db_path, 'w') as f:
-        json.dump(data, f, indent=2)
 
 def process_image(image_path, arcface_model):
     """
@@ -63,9 +48,7 @@ def process_image(image_path, arcface_model):
             print("Error: Could not generate embedding for the face.")
             return None, 0
 
-        # 3. Return as a list for JSON storage
-        # The embedding is already a 1D numpy array, no squeeze needed
-        return embedding.tolist(), len(faces)
+        return embedding, len(faces)
         
     except Exception as e:
         print(f"Error processing image: {e}")
@@ -95,86 +78,46 @@ def main():
         print("Please ensure 'insightface' is installed.")
         sys.exit(1)
     
-    # 1. Load existing database
-    db_data = load_encodings(ENCODING_DB_PATH)
-    
-    # 2. Get Student ID
+    db.init_database()
+
     student_id = input("Enter Student ID (e.g., s1001): ").strip()
     if not student_id:
         print("Error: Student ID cannot be empty.")
         sys.exit(1)
 
-    # 3. Check if student exists
-    if student_id in db_data:
-        student_name = db_data[student_id].get("name", "N/A")
-        encoding_count = len(db_data[student_id].get("encodings", []))
-        print(f"\nStudent ID '{student_id}' ({student_name}) already exists with {encoding_count} encoding(s).")
-        
+    existing = students_db.get_student(student_id)
+    if existing:
+        print(f"\nStudent ID '{student_id}' ({existing['name']}) already exists "
+              f"with {existing['encoding_count']} encoding(s), status '{existing['status']}'.")
         print("  [1] Add a new face encoding to this student")
         print("  [2] Overwrite all existing data for this student (DANGEROUS)")
         print("  [3] Cancel")
         choice = input("Select an option (1-3): ").strip()
-        
         if choice == '1':
-            # --- Add new encoding ---
-            image_path = input("Enter path to *new* student photo: ").strip()
-            new_encoding, _ = process_image(image_path, arcface_model) # Updated call
-            
-            if new_encoding:
-                if 'encodings' not in db_data[student_id] or not isinstance(db_data[student_id]['encodings'], list):
-                    db_data[student_id]['encodings'] = []
-                
-                db_data[student_id]["encodings"].append(new_encoding)
-                db_data[student_id]["status"] = "approved" # Automatically approve
-                save_encodings(ENCODING_DB_PATH, db_data)
-                print(f"\nSuccess! Added new encoding. '{student_name}' now has {len(db_data[student_id]['encodings'])} encodings.")
-            else:
-                print("Failed to add new encoding.")
-
-        elif choice == '2':
-            # --- Overwrite existing student ---
-            print(f"Overwriting {student_name}...")
-            student_name = input(f"Enter Student Name (for {student_id}): ").strip()
-            image_path = input("Enter path to new student photo: ").strip()
-            new_encoding, _ = process_image(image_path, arcface_model) # Updated call
-            
-            if new_encoding:
-                db_data[student_id]["name"] = student_name # Also update name
-                db_data[student_id]["encodings"] = [new_encoding] # Start a new list
-                db_data[student_id]["status"] = "approved" # Automatically approve
-                save_encodings(ENCODING_DB_PATH, db_data)
-                print(f"\nSuccess! Overwrote student. '{student_name}' now has 1 encoding.")
-            else:
-                print("Failed to overwrite student.")
-
-        else:
+            encoding, _ = process_image(input("Enter path to *new* student photo: ").strip(), arcface_model)
+            if encoding is None:
+                sys.exit("Failed to add new encoding.")
+            count = students_db.add_encodings(student_id, [encoding])
+            students_db.set_status(student_id, "approved", reviewed_by="register_student.py")
+            print(f"\nSuccess! '{existing['name']}' now has {count} encodings.")
+            return
+        if choice != '2':
             print("Registration cancelled.")
-            sys.exit(0)
+            return
+        print(f"Overwriting {existing['name']}...")
 
-    else:
-        # --- Create new student ---
-        print(f"\nCreating new registration for Student ID: {student_id}")
-        student_name = input(f"Enter Student Name (for {student_id}): ").strip()
-        if not student_name:
-            print("Error: Student Name cannot be empty.")
-            sys.exit(1)
+    student_name = input(f"Enter Student Name (for {student_id}): ").strip()
+    if not student_name:
+        sys.exit("Error: Student Name cannot be empty.")
+    encoding, _ = process_image(input("Enter path to student photo: ").strip(), arcface_model)
+    if encoding is None:
+        sys.exit("Registration failed.")
+    # Students added by an administrator from the command line are approved directly
+    students_db.save_registration(student_id, student_name, [encoding], extracted_id_text="CLI registration",
+                                  status="approved")
+    print("\n--- Success! ---")
+    print(f"Student '{student_name}' (ID: {student_id}) has been registered with 1 encoding.")
 
-        image_path = input("Enter path to student photo: ").strip()
-        new_encoding, _ = process_image(image_path, arcface_model) # Updated call
-        
-        if new_encoding:
-            db_data[student_id] = {
-                "name": student_name,
-                "encodings": [new_encoding], # <-- Store as a list
-                "status": "approved" # Auto-approve students added via CLI
-            }
-            save_encodings(ENCODING_DB_PATH, db_data)
-            print("\n--- Success! ---")
-            print(f"Student '{student_name}' (ID: {student_id}) has been registered with 1 encoding.")
-            print(f"Total students in database: {len(db_data)}")
-        else:
-            print("Registration failed.")
-            sys.exit(1)
 
 if __name__ == "__main__":
     main()

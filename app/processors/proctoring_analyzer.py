@@ -256,9 +256,11 @@ class ProctoringAnalyzer:
         if is_present:
             if not state["is_present"]:
                 if state["ever_present"]: 
-                    self.logger.log_evidence(frame, "PRESENCE_RETURNED", f"Student {student_name} has RETURNED.")
+                    self.logger.log_evidence(frame, "PRESENCE_RETURNED", f"Student {student_name} has RETURNED.",
+                                             subject=student_name)
                 elif not state["ever_present"]:
-                    self.logger.log_evidence(frame, "ATTENDANCE_MARKED", f"Student {student_name} marked PRESENT.")
+                    self.logger.log_evidence(frame, "ATTENDANCE_MARKED", f"Student {student_name} marked PRESENT.",
+                                             subject=student_name)
                     state["ever_present"] = True
             
             if state["alert_start_time"] is not None and state["has_been_logged"]:
@@ -270,7 +272,8 @@ class ProctoringAnalyzer:
             state["last_seen"] = datetime.now()
         else:
             if state["is_present"]:
-                self.logger.log_evidence(frame, "PRESENCE_LEFT", f"Student {student_name} has LEFT.")
+                self.logger.log_evidence(frame, "PRESENCE_LEFT", f"Student {student_name} has LEFT.",
+                                         subject=student_name)
                 state["is_present"] = False 
             
             if state["ever_present"]:
@@ -284,7 +287,7 @@ class ProctoringAnalyzer:
                         is_alert_active = True
                         if not state["has_been_logged"]:
                             log_msg = f"Student {student_name} is missing. (Duration: {duration:.1f}s)"
-                            self.logger.log_evidence(frame, alert_key, log_msg)
+                            self.logger.log_evidence(frame, alert_key, log_msg, subject=student_name)
                             state["has_been_logged"] = True
             else:
                 # Never seen since the session started: flag a no-show.
@@ -294,7 +297,8 @@ class ProctoringAnalyzer:
                     if not state["has_been_logged"]:
                         self.logger.log_evidence(
                             frame, alert_key,
-                            f"Student {student_name} has not appeared since the session started ({waited:.0f}s).")
+                            f"Student {student_name} has not appeared since the session started ({waited:.0f}s).",
+                            subject=student_name)
                         state["has_been_logged"] = True
 
             state["is_present"] = False

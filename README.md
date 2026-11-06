@@ -1,8 +1,8 @@
 # Smart Exam Surveillance
 
-A real-time, AI-assisted exam proctoring system. It watches a webcam feed of one or more students during an exam, checks that each person in view is a registered student, tracks where they are looking, detects unauthorized items such as phones, and records evidence snapshots of suspicious activity for a proctor to review during or after the exam.
+A real-time, AI-assisted exam proctoring system. It watches a webcam feed of one or more students during an exam, checks that each person in view is a registered student, tracks where they are looking, detects unauthorized items such as phones, and records evidence snapshots of suspicious activity. Proctors run and watch exams from a web console: live annotated video, alerts as they happen, and a report for every session.
 
-**Tech stack:** Python · PyTorch · OpenCV · MediaPipe · InsightFace (ArcFace) · RT-DETR (Hugging Face Transformers) · ONNX Runtime · Streamlit · SQLite
+**Tech stack:** Python · FastAPI · React + TypeScript · TanStack Query · Tailwind CSS · PyTorch · OpenCV · MediaPipe · InsightFace (ArcFace) · RT-DETR (Hugging Face Transformers) · ONNX Runtime · SQLite · Streamlit (student registration) · pytest · Vitest · Playwright
 
 ---
 
@@ -15,32 +15,39 @@ A real-time, AI-assisted exam proctoring system. It watches a webcam feed of one
 | **Contraband detection** | RT-DETR (`PekingU/rtdetr_r50vd`, COCO classes) detects people, phones, laptops, books, keyboards and mice. Each item is assigned to the student whose desk region contains it (from `calibrate_rois.py`), or to the nearest student if no regions are set. An item must be seen for 2 s before it counts, so one-frame misdetections are ignored. |
 | **Liveness / anti-spoofing** | Each face has to prove it is live by blinking. A blink is a dip in EAR well below that person's own rolling open-eye level, followed by recovery; the required dip scales with how noisy that face's landmarks are. A new face that hasn't blinked within 8 s, or a confirmed face that hasn't blinked for 30 s, is treated as a photo. Head movement and pixel motion are deliberately not used as proof of life, because a photo on a moving phone produces both. |
 | **Context-aware rules** | The proctor sets the exam context at launch: open-book exams allow books, paper-based exams allow looking down at the desk, and specific devices can be allowed. Alerts take this context into account. |
-| **Evidence and review** | Every alert saves a screenshot and a database record. A Streamlit dashboard shows each session's incidents with their evidence images, an attendance and break report, and a live-refresh mode. |
+| **Live monitoring and review** | The proctor console streams the annotated video and pushes alerts to the browser as they happen. Every alert saves a screenshot and a database record; each session gets a report with attendance, breaks and incidents per student, with the evidence images. |
 
 ---
 
 ## How it works
 
-The system is made up of three Streamlit apps and one real-time engine:
+The proctoring engine runs inside a FastAPI server, which the proctor console (a React app) talks to. Students register through a separate Streamlit portal.
 
 ```mermaid
 flowchart LR
-    A[Student Portal<br/>guided face registration] -->|pending record| DB[(student_encodings.json)]
-    B[Proctor Dashboard<br/>approve / reject] -->|approved| DB
-    C[Session Launcher<br/>pick students + exam rules] -->|spawns| E[Proctoring Engine<br/>main.py]
-    DB --> E
-    E -->|alerts + evidence| S[(SQLite + screenshots)]
-    S --> R[Proctor Dashboard<br/>exam review]
+    P[Student Portal<br/>Streamlit, guided face capture] -->|pending registration| DB[(SQLite<br/>students, sessions, alerts, accounts)]
+    subgraph Server[FastAPI server: python -m api]
+        API[REST API<br/>auth, students, sessions, reports]
+        M[Session manager<br/>one session at a time]
+        E[Proctoring engine<br/>threads, models]
+        M --> E
+    end
+    UI[Proctor console<br/>React + TypeScript] <-->|REST + cookie session| API
+    UI <-->|WebSocket: state, alerts, live status| M
+    E -->|MJPEG annotated video| UI
+    API <--> DB
+    E -->|alerts + evidence| DB
+    CAM[Webcam or video file] --> E
 ```
 
 ### 1. Student registration
-Students open the **Student Portal**, enter their ID and name, and complete a guided webcam capture. The page estimates head yaw in real time and asks them to face **front**, **left** and **right**. Each pose must be held for 15 consecutive frames before it is captured. An ArcFace embedding is computed for each pose, and the record is saved with status `pending`, along with the three photos for review.
+Students open the **Student Portal**, enter their ID and name, and complete a guided webcam capture. The page estimates head yaw in real time and asks them to face **front**, **left** and **right**. Each pose must be held for 15 consecutive frames before it is captured. An ArcFace embedding is computed for each pose, and the registration is saved with status `pending`, along with the three photos for review.
 
 ### 2. Approval
-In the **Proctor Dashboard → Registration Approval** page, an administrator sees the three captured photos next to the entered name and approves or rejects the registration. Only approved students can be selected for an exam.
+On the console's **Students** page, a proctor sees the three captured photos next to the entered name and ID, and approves or rejects the registration. The reviewer and time are recorded. Only approved students can be selected for an exam.
 
-### 3. Launching a session
-The **Session Launcher** lists approved students. The proctor selects who is sitting the exam, sets whether it is open-book and whether it is paper-based, and picks any allowed devices. It then starts the proctoring engine as a separate process, passing the student IDs and exam context as arguments.
+### 3. Starting a session
+On **New session**, the proctor selects the students sitting the exam, sets whether it is open-book and paper-based, ticks any allowed devices, and picks the video source (the webcam, or a recorded video for demos and testing). The server loads the models in the background and the console switches to the **Live monitor**, which shows the annotated video, who is at their desk, each person's liveness and head pose, and alerts with their evidence as they arrive. There is one camera, so one session runs at a time; a second start is refused until the first one is stopped.
 
 ### 4. The real-time engine
 The engine uses three threads so that heavy model inference never holds up the per-frame analysis:
@@ -79,24 +86,44 @@ Each incident saves one evidence screenshot, not one per frame.
 Attendance events (`ATTENDANCE_MARKED`, `PRESENCE_LEFT`, `PRESENCE_RETURNED`) are also recorded and used to build the break report.
 
 ### 6. Logging and review
-- **SQLite** (`proctoring_session.db`): a `sessions` table (session ID, students, start time) and an `alerts` table (timestamp, level, alert type, message, evidence file path).
-- **Evidence screenshots** are saved in `proctoring_logs/evidence/`.
+- **SQLite** (`proctoring_session.db`, WAL mode): students and their face embeddings, proctor accounts and login sessions, a `sessions` table (students, exam rules, video source, start/end time, status) and an `alerts` table (timestamp, level, alert type, the student it concerns, message, evidence file).
+- **Evidence screenshots** are saved in `proctoring_logs/evidence/` and served to logged-in proctors only.
 - **Detailed debug logs** (liveness decisions, similarity scores, detections, human actions) are written per session under `logs/`. Logging runs on its own background thread so disk I/O never blocks the video pipeline.
 
-The **Exam Review** page reads the database and shows, for each session, the participants, an attendance and break timeline, and a chronological incident report with the evidence image for each alert. Live mode follows the most recent session and refreshes every 10 seconds.
+The **Sessions** page lists every exam. A session's report shows its duration, attendance, each student's first appearance, breaks and time away, incidents by type and student, and a timeline of every event with its evidence image.
+
+### 7. Web API and security
+- **Proctor login:** passwords are hashed with scrypt. A login creates a random session token, which is kept in an `httpOnly`, `SameSite=Strict` cookie and stored server-side only as a SHA-256 hash, so logins can be revoked and a leaked database can't be used to sign in. Repeated failed logins lock that username for a minute.
+- **Cross-site protection:** state-changing requests and the WebSocket must come from the console's own origin, and responses carry a Content-Security-Policy and other security headers.
+- **Server binding:** the server listens on `127.0.0.1` by default, and runs a single worker because the camera and the running session belong to one process.
+- **Live data:** the annotated video is an MJPEG stream (an `<img>` in the browser). Session state, alerts and live status (about twice a second) go over one WebSocket per browser tab, which reconnects with backoff.
+- **Interrupted sessions:** a session cut off by a crash or restart is marked `failed` when the server starts.
+- **API docs:** interactive documentation is served at `/docs`.
 
 ---
 
 ## Project structure
 
 ```
-├── main.py                     # Proctoring engine entry point (spawned by the launcher)
-├── launcher.py                 # Streamlit: select approved students + exam rules, start a session
-├── config.py                   # All tunable thresholds and model settings
+├── api/                        # FastAPI server (python -m api)
+│   ├── main.py                 # App factory, security middleware, frontend serving
+│   ├── routes/                 # auth, students, sessions (+ MJPEG stream, evidence), live WebSocket
+│   ├── auth_store.py, security.py  # Accounts, scrypt hashing, session tokens, login throttling
+│   ├── events.py               # Engine threads -> WebSocket clients
+│   ├── session_store.py, reports.py  # Session history and per-student reports
+│   └── manage.py               # create-user / set-password
+├── frontend/                   # React + TypeScript proctor console (Vite, TanStack Query, Tailwind)
+│   ├── src/pages/              # Login, Live monitor, New session, Sessions, Session report, Students
+│   └── e2e/                    # Playwright tests against the real server
+├── main.py                     # Run one session in an OpenCV window from the command line
+├── config.py                   # All tunable thresholds, model settings and data locations
 ├── calibrate_rois.py           # Tool to draw per-student desk regions on the camera view
 ├── register_student.py         # CLI alternative to enroll a student from a photo
 ├── app/
-│   ├── core.py                 # ProctoringApp: capture thread, processing thread, pipeline
+│   ├── core.py                 # ProctoringApp: capture, inference and processing threads
+│   ├── session_manager.py      # Runs sessions in the background for the API
+│   ├── session_setup.py        # Validates students, loads face data and desk regions
+│   ├── video_source.py         # Webcam or video file
 │   ├── models/tracked_person.py
 │   ├── processors/
 │   │   ├── face_recognizer.py      # InsightFace / ArcFace identification
@@ -108,10 +135,10 @@ The **Exam Review** page reads the database and shows, for each session, the par
 │   │   ├── person_analyzer.py      # Per-person liveness + pose alerts
 │   │   ├── cheating_detector.py    # Context-aware rule engine
 │   │   └── proctoring_analyzer.py  # Session-level analysis and alert priority
-│   └── utils/                  # SQLite, async logger, drawing, student registry
+│   └── utils/                  # SQLite (sessions, students), async logger, drawing
 ├── student_registration/       # Streamlit student portal + guided registration page
-├── review/                     # Streamlit proctor dashboard: exam review + registration approval
-├── tests/                      # Model-free tests of rules, liveness, tracker and logger on a simulated clock
+├── scripts/                    # install_insightface_nobuild.py
+├── tests/                      # Engine rules on a simulated clock, data layer, session manager, web API
 └── benchmarks/                 # Liveness and throughput benchmarks, clip recorder, saved results
 ```
 
@@ -120,53 +147,86 @@ The **Exam Review** page reads the database and shows, for each session, the par
 ## Getting started
 
 ### Requirements
-- Python 3.10 or 3.11
-- A webcam
+- Python 3.10 or 3.11, and Node.js 20 or newer (to build the console)
+- A webcam, or a recorded video to proctor
 - An NVIDIA GPU is recommended. On CPU every camera frame is still analysed, but detections and identities refresh only about once per second (see [Measured results](#measured-results)).
-- On Windows, installing `insightface` requires the Microsoft C++ Build Tools.
 
 ### Install
-```bash
+Commands are for Windows PowerShell; on macOS/Linux use `.venv/bin/python` and `/` in paths.
+
+```powershell
 git clone https://github.com/tsetan13821/smart-exam-surveillance.git
 cd smart-exam-surveillance
-python -m venv venv
-venv\Scripts\activate            # Windows  (macOS/Linux: source venv/bin/activate)
-pip install -r requirements.txt
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-The code uses MediaPipe's FaceMesh *solutions* API, which newer MediaPipe releases have removed, so `requirements.txt` pins `mediapipe==0.10.21` (with `numpy==1.26.4` and `opencv-python==4.11.0.86`). For GPU inference, install the CUDA build of PyTorch from pytorch.org. On first run, the InsightFace `buffalo_l` and RT-DETR model weights are downloaded automatically.
+The code uses MediaPipe's FaceMesh *solutions* API, which newer MediaPipe releases have removed, so `requirements.txt` pins `mediapipe==0.10.21` (with `numpy==1.26.4` and `opencv-python==4.11.0.86`). Use a virtual environment: these pins conflict with packages that need NumPy 2. For GPU inference, install the CUDA build of PyTorch from pytorch.org. On first run, the InsightFace `buffalo_l` and RT-DETR model weights are downloaded automatically.
+
+**Windows without the C++ Build Tools:** `pip install insightface` compiles a C extension and fails without the Microsoft C++ Build Tools. Either install them, or install everything else and then only insightface's Python code (the compiled part renders face masks, which this project doesn't use):
+
+```powershell
+Get-Content requirements.txt | Where-Object { $_ -notmatch '^insightface' } | Set-Content requirements-noinsightface.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-noinsightface.txt onnx scikit-image easydict
+.\.venv\Scripts\python.exe scripts\install_insightface_nobuild.py
+```
+
+Then create a proctor account and build the console:
+
+```powershell
+.\.venv\Scripts\python.exe -m api.manage create-user yourname    # asks for a password (8+ characters)
+cd frontend
+npm install
+npm run build
+cd ..
+```
 
 ### Run
-```bash
-# 1. Students register (run from the student_registration folder)
+```powershell
+# Proctor console and API, at http://127.0.0.1:8000
+.\.venv\Scripts\python.exe -m api
+
+# Student registration portal (from the student_registration folder)
 cd student_registration
-streamlit run student_portal.py
-
-# 2. Proctor approves registrations and reviews exams (run from the review folder)
-cd review
-streamlit run dashboard.py
-
-# 3. Proctor starts an exam session (run from the project root)
-streamlit run launcher.py
+..\.venv\Scripts\python.exe -m streamlit run student_portal.py
 ```
 
-The proctoring window opens on the machine with the camera. Press `q` to end the session. The engine can also be started directly:
+To proctor a recorded video instead of the webcam (for demos or testing), put `.mp4` files in a `demo_videos/` folder; they appear as video sources on the **New session** page.
 
-```bash
-python main.py --student_ids "[\"1001\"]" --exam_context "{\"is_open_book\": false, \"allowed_devices\": []}"
+For frontend development with hot reload, keep the API running and start Vite in `frontend/` with `npm run dev`, then open http://localhost:5173. Vite forwards `/api` (including the WebSocket) to the API.
+
+A session can also be run without the web console, in an OpenCV window (press `q` to end it):
+
+```powershell
+.\.venv\Scripts\python.exe main.py --student_ids '["1001"]' --exam_context '{"is_paper_exam": true}'
+.\.venv\Scripts\python.exe main.py --student_ids '["1001"]' --source demo_videos\exam.mp4
 ```
 
 ### Tests and benchmarks
-```bash
-pytest tests                                   # rules, liveness, tracker, logger (no models needed)
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests      # engine rules, liveness, data layer, session manager, web API (no models needed)
+
+cd frontend
+npm test                                         # component and state tests (Vitest)
+npm run lint
+npm run typecheck
+
+# End-to-end: a browser drives the built console against the real server and models
+$env:SMARTSQUAD_PYTHON = "..\.venv\Scripts\python.exe"
+$env:E2E_VIDEO_DIR = "C:\path\to\folder-with-a-video"
+$env:E2E_BROWSER = "msedge"                      # or first run: npx playwright install chromium
+npm run e2e
+cd ..
 
 # Liveness: synthetic photo-attack clips built from face photos, plus any recordings you add
-python benchmarks/record_clip.py live reading_notes   # saves benchmarks/clips/live/reading_notes.mp4
-python benchmarks/liveness_benchmark.py --images path/to/face_photos --clips benchmarks/clips
+.\.venv\Scripts\python.exe benchmarks\record_clip.py live reading_notes
+.\.venv\Scripts\python.exe benchmarks\liveness_benchmark.py --images path\to\face_photos --clips benchmarks\clips
 
 # Throughput of the full pipeline on this machine
-python benchmarks/perf_benchmark.py --source path/to/frame_or_video
+.\.venv\Scripts\python.exe benchmarks\perf_benchmark.py --source path\to\frame_or_video
 ```
+
+The end-to-end tests use their own temporary database and folders, never your real data.
 
 ### Configuration
 All thresholds live in [`config.py`](config.py), including:
@@ -176,6 +236,8 @@ All thresholds live in [`config.py`](config.py), including:
 - head-pose and gaze limits
 - liveness timings
 - alert durations
+
+Data locations can be changed with environment variables: `SMARTSQUAD_DB`, `SMARTSQUAD_REGISTRATIONS_DIR`, `SMARTSQUAD_LOG_DIR` and `SMARTSQUAD_DEMO_VIDEOS`. When the console is served over HTTPS, set `SMARTSQUAD_COOKIE_SECURE=1`.
 
 ---
 
@@ -196,7 +258,7 @@ Not measured yet: how often real students are wrongly flagged as photos (this ne
 
 ## Data and privacy
 
-The system stores biometric data: face embeddings in `student_encodings.json` and registration photos in `registrations_for_review/`. It also stores session evidence screenshots. All of these, along with the session database, logs and benchmark recordings, are excluded from version control by `.gitignore`. Keep them locally and handle them according to your institution's data-protection rules.
+The system stores biometric data: face embeddings in the SQLite database (older installs kept them in `student_encodings.json`, which is imported once and then left untouched) and registration photos in `registrations_for_review/`. It also stores session evidence screenshots, which the API serves only to logged-in proctors. All of these, along with logs, demo videos and benchmark recordings, are excluded from version control by `.gitignore`. Keep them locally and handle them according to your institution's data-protection rules.
 
 ---
 

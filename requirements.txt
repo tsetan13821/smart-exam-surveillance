@@ -8,6 +8,10 @@ opencv-python==4.11.0.86
 numpy==1.26.4              # mediapipe 0.10.21 needs numpy < 2
 Pillow
 
+# Web API (python -m api)
+fastapi>=0.115
+uvicorn[standard]>=0.30    # [standard] adds the WebSocket support /api/live needs
+
 # Apps and data
 streamlit
 streamlit-webrtc           # browser webcam for student registration
@@ -16,3 +20,4 @@ pandas
 
 # Development
 pytest
+httpx                      # FastAPI's TestClient

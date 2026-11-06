@@ -79,7 +79,8 @@ class CheatingDetector:
                 msg = self.RULES[key][1]
                 if key != "GAZE_AWAY" and device:
                     msg = f"{msg} ({device})"
-                self.logger.log_evidence(frame, key, f"({person.get_logging_name()}) {msg}")
+                self.logger.log_evidence(frame, key, f"({person.get_logging_name()}) {msg}",
+                                         subject=person.student_name())
                 person.alert_has_been_logged[key] = True
         self._reset_evidence_flags(person, active)
 

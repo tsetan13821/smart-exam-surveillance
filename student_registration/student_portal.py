@@ -1,6 +1,6 @@
 # 🏠_Student_Portal.py
 import streamlit as st
-from src.database import load_encodings # Correct import path
+from src.database import get_registration
 
 st.set_page_config(layout="wide")
 st.title("👨‍🎓 Student Proctoring Portal") # Fixed emoji
@@ -24,8 +24,7 @@ st.divider()
 if student_id and student_name:
     st.header("Your Registration Status")
     
-    db_data = load_encodings()
-    student_record = db_data.get(student_id)
+    student_record = get_registration(student_id)
     
     if student_record:
         # --- Student Record EXISTS ---
