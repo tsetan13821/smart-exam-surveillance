@@ -1,9 +1,7 @@
 # app/utils/id_processor.py
 import cv2
-import numpy as np
 import pytesseract
 import re
-from PIL import Image
 
 # --- MODIFICATION: Removed all torch, MTCNN, and insightface imports ---
 # These models are now "injected" (passed in) rather than loaded here.

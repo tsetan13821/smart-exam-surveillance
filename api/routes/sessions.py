@@ -38,17 +38,19 @@ def exam_options():
 
 @router.get("/sources", response_model=List[SourceOption])
 def list_sources(settings=Depends(get_settings)):
-    options = [{"type": "camera", "index": config.CAMERA_INDEX, "label": f"Camera {config.CAMERA_INDEX}"}]
+    options = []
+    if settings.camera_enabled:
+        options.append({"type": "camera", "index": config.CAMERA_INDEX, "label": f"Camera {config.CAMERA_INDEX}"})
     options += [{"type": "video", "name": name, "label": f"Video: {name}"} for name in _demo_videos(settings)]
     return options
 
 
 def _resolve_source(spec, settings):
     """Turns the client's source choice into what the engine opens: a camera index or a file path."""
-    if spec is None:
-        return None
-    if spec.type == "camera":
-        return spec.index
+    if spec is None or spec.type == "camera":
+        if not settings.camera_enabled:
+            raise HTTPException(422, "No camera is available on this server; choose a video.")
+        return None if spec is None else spec.index
     if spec.name not in _demo_videos(settings):       # only files listed by /api/sources, no paths
         raise HTTPException(422, f"Unknown video '{spec.name}'.")
     return os.path.join(settings.demo_video_dir, spec.name)

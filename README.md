@@ -1,8 +1,18 @@
 # Smart Exam Surveillance
 
+[![CI](https://github.com/tsetan13821/smart-exam-surveillance/actions/workflows/ci.yml/badge.svg)](https://github.com/tsetan13821/smart-exam-surveillance/actions/workflows/ci.yml)
+
 A real-time, AI-assisted exam proctoring system. It watches a webcam feed of one or more students during an exam, checks that each person in view is a registered student, tracks where they are looking, detects unauthorized items such as phones, and records evidence snapshots of suspicious activity. Proctors run and watch exams from a web console: live annotated video, alerts as they happen, and a report for every session.
 
-**Tech stack:** Python · FastAPI · React + TypeScript · TanStack Query · Tailwind CSS · PyTorch · OpenCV · MediaPipe · InsightFace (ArcFace) · RT-DETR (Hugging Face Transformers) · ONNX Runtime · SQLite · Streamlit (student registration) · pytest · Vitest · Playwright
+**Tech stack:** Python · FastAPI · React + TypeScript · TanStack Query · Tailwind CSS · PyTorch · OpenCV · MediaPipe · InsightFace (ArcFace) · RT-DETR (Hugging Face Transformers) · ONNX Runtime · SQLite · Streamlit (student registration) · pytest · Vitest · Playwright · Docker · GitHub Actions
+
+![Live monitor: annotated video, alerts as they arrive and the people in view](docs/screenshots/live-monitor.png)
+
+| Session report | New session |
+|---|---|
+| ![Session report with attendance, incidents and evidence](docs/screenshots/session-report.png) | ![Choosing students, exam rules and the video source](docs/screenshots/new-session.png) |
+
+<sub>Screenshots use demo students and a test clip of a still face photo instead of a live person (flagged as a photo spoof). Faces in the video and evidence images are blurred.</sub>
 
 ---
 
@@ -45,6 +55,8 @@ Students open the **Student Portal**, enter their ID and name, and complete a gu
 
 ### 2. Approval
 On the console's **Students** page, a proctor sees the three captured photos next to the entered name and ID, and approves or rejects the registration. The reviewer and time are recorded. Only approved students can be selected for an exam.
+
+<img src="docs/screenshots/students.png" alt="Students page with a registration waiting for review" width="640">
 
 ### 3. Starting a session
 On **New session**, the proctor selects the students sitting the exam, sets whether it is open-book and paper-based, ticks any allowed devices, and picks the video source (the webcam, or a recorded video for demos and testing). The server loads the models in the background and the console switches to the **Live monitor**, which shows the annotated video, who is at their desk, each person's liveness and head pose, and alerts with their evidence as they arrive. There is one camera, so one session runs at a time; a second start is refused until the first one is stopped.
@@ -137,9 +149,13 @@ The **Sessions** page lists every exam. A session's report shows its duration, a
 │   │   └── proctoring_analyzer.py  # Session-level analysis and alert priority
 │   └── utils/                  # SQLite (sessions, students), async logger, drawing
 ├── student_registration/       # Streamlit student portal + guided registration page
-├── scripts/                    # install_insightface_nobuild.py
+├── scripts/                    # insightface install without build tools, CI/Docker dependency install
 ├── tests/                      # Engine rules on a simulated clock, data layer, session manager, web API
-└── benchmarks/                 # Liveness and throughput benchmarks, clip recorder, saved results
+├── benchmarks/                 # Liveness and throughput benchmarks, clip recorder, saved results
+├── docs/screenshots/
+├── .github/workflows/ci.yml    # Lint, tests, build and browser tests on every push and pull request
+├── Dockerfile, docker-compose.yml  # CPU demo image: API + console proctoring recorded videos
+└── pyproject.toml              # ruff and pytest settings
 ```
 
 ---
@@ -202,9 +218,30 @@ A session can also be run without the web console, in an OpenCV window (press `q
 .\.venv\Scripts\python.exe main.py --student_ids '["1001"]' --source demo_videos\exam.mp4
 ```
 
+### Docker demo
+The image runs the API and console on CPU with the model weights built in, so nothing else needs installing. A container can't reach the host's webcam on Windows or macOS, so in Docker the console proctors recorded videos only.
+
+```powershell
+Copy-Item .env.example .env          # then set SMARTSQUAD_ADMIN_PASSWORD in .env
+New-Item -ItemType Directory -Force demo_videos
+# copy one or more .mp4 recordings into demo_videos
+docker compose up --build            # first build downloads about 2 GB; then open http://localhost:8000
+```
+
+Sign in with the user and password from `.env`. To enrol a student from a photo (approved straight away), put the photo in a `photos` folder and run the command-line registration inside the container; enter `/photos/` followed by the file name when it asks for the photo:
+
+```powershell
+docker compose run --rm -v ${PWD}/photos:/photos:ro smartsquad python register_student.py
+```
+
+The database, registrations and evidence live in the `smartsquad-data` volume, so they survive restarts; `docker compose down -v` deletes them. The port is published on `127.0.0.1` only.
+
 ### Tests and benchmarks
+Every push and pull request runs the checks below on GitHub Actions ([`ci.yml`](.github/workflows/ci.yml)): ruff, pytest, the frontend lint, type check, unit tests and build, then the end-to-end browser tests against the real server and models.
+
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests      # engine rules, liveness, data layer, session manager, web API (no models needed)
+.\.venv\Scripts\python.exe -m ruff check .      # lint (pip install ruff; settings in pyproject.toml)
 
 cd frontend
 npm test                                         # component and state tests (Vitest)
@@ -237,7 +274,7 @@ All thresholds live in [`config.py`](config.py), including:
 - liveness timings
 - alert durations
 
-Data locations can be changed with environment variables: `SMARTSQUAD_DB`, `SMARTSQUAD_REGISTRATIONS_DIR`, `SMARTSQUAD_LOG_DIR` and `SMARTSQUAD_DEMO_VIDEOS`. When the console is served over HTTPS, set `SMARTSQUAD_COOKIE_SECURE=1`.
+Data locations can be changed with environment variables: `SMARTSQUAD_DB`, `SMARTSQUAD_REGISTRATIONS_DIR`, `SMARTSQUAD_LOG_DIR` and `SMARTSQUAD_DEMO_VIDEOS`. When the console is served over HTTPS, set `SMARTSQUAD_COOKIE_SECURE=1`. `SMARTSQUAD_DISABLE_CAMERA=1` hides the webcam source (the Docker image sets it). `SMARTSQUAD_ADMIN_USER` and `SMARTSQUAD_ADMIN_PASSWORD` create the first proctor account when the database has none.
 
 ---
 

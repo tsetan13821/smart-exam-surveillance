@@ -1,8 +1,6 @@
 # core/models.py
 import streamlit as st
-import mediapipe as mp
 from mediapipe.python.solutions import face_mesh as mp_face_mesh
-import insightface
 from insightface.app import FaceAnalysis
 
 @st.cache_resource

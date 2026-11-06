@@ -1,12 +1,8 @@
 # register_student.py
-import json
 import os
 import sys
 import cv2
-import numpy as np
-import insightface
 from insightface.app import FaceAnalysis # Use InsightFace for both detection and embeddings
-from PIL import Image
 
 # --- REMOVED torch and facenet_pytorch imports ---
 

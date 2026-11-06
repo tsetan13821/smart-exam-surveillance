@@ -1,0 +1,21 @@
+# Docker demo: the proctor console at http://localhost:8000, proctoring videos from ./demo_videos.
+#   1. copy .env.example to .env and choose a proctor password
+#   2. put one or more .mp4 files in ./demo_videos
+#   3. docker compose up --build
+services:
+  smartsquad:
+    build: .
+    image: smartsquad:latest
+    ports:
+      - "127.0.0.1:8000:8000"     # this computer only. For another host port, e.g. 8080, also set
+                                  # SMARTSQUAD_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+    environment:
+      SMARTSQUAD_ADMIN_USER: ${SMARTSQUAD_ADMIN_USER:-proctor}
+      SMARTSQUAD_ADMIN_PASSWORD: ${SMARTSQUAD_ADMIN_PASSWORD:?Set SMARTSQUAD_ADMIN_PASSWORD in .env (see .env.example)}
+    volumes:
+      - smartsquad-data:/data
+      - ./demo_videos:/videos:ro
+    restart: unless-stopped
+
+volumes:
+  smartsquad-data:

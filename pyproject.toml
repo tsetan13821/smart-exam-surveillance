@@ -1,0 +1,15 @@
+# Tool configuration (the project is run from source; it is not packaged).
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+extend-exclude = ["frontend", ".venv", "backups"]
+
+[tool.ruff.lint]
+# Errors that indicate real bugs: syntax errors, undefined names, unused imports/variables,
+# misplaced imports and statements. Style is not enforced.
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E701", "E702", "E731", "E741"]   # one-line statements, lambda assignment, short names
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

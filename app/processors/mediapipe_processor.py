@@ -4,10 +4,8 @@ import numpy as np
 import mediapipe as mp
 import inspect
 import config as config
-from datetime import datetime
 from collections import deque
 import math
-import os
 
 class MediaPipeProcessor:
     
@@ -19,7 +17,7 @@ class MediaPipeProcessor:
     def set_alert_logger(self, logger):
         self.logger = logger
         if self.logger:
-            self.logger.log_mediapipe_debug("CONFIG", f"Initialized MediaPipeProcessor with thresholds",
+            self.logger.log_mediapipe_debug("CONFIG", "Initialized MediaPipeProcessor with thresholds",
                                           {"PRESENCE": self.PRESENCE_THRESHOLD, "INFERRED": self.INFERRED_CONF,
                                            "EDGE_MARGIN": self.EDGE_MARGIN, "MAX_ABS_Z": self.MAX_ABS_Z,
                                            "TEMPORAL_WINDOW": self.TEMPORAL_WINDOW})
@@ -437,7 +435,7 @@ class MediaPipeProcessor:
 
         try:
             results = self.face_mesh.process(frame_pre)
-        except Exception as e:
+        except Exception:
             return [] 
 
         if not results.multi_face_landmarks:

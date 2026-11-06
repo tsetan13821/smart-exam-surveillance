@@ -222,6 +222,25 @@ def test_sources_list_the_camera_and_demo_videos(authed):
     ]
 
 
+def test_camera_can_be_disabled(tmp_path, monkeypatch):
+    db.init_database()
+    students_db.save_registration("1", "Asha", [np.ones(512, np.float32)], status="approved")
+    os.makedirs(config.DEMO_VIDEO_DIR)
+    open(os.path.join(config.DEMO_VIDEO_DIR, "demo.mp4"), "wb").close()
+    monkeypatch.setenv("SMARTSQUAD_DISABLE_CAMERA", "1")
+    app = create_app(Settings(demo_video_dir=config.DEMO_VIDEO_DIR, frontend_dist=str(tmp_path / "none")),
+                     manager=SessionManager(engine_factory=lambda *a: None))
+    with TestClient(app) as client:
+        auth_store.create_user("proctor", PASSWORD)
+        login(client)
+        assert [s["type"] for s in client.get("/api/sources").json()] == ["video"]
+        for source in (None, {"type": "camera", "index": 0}):
+            body = {"student_ids": ["1"]} if source is None else {"student_ids": ["1"], "source": source}
+            r = client.post("/api/sessions", json=body)
+            assert r.status_code == 422 and "No camera" in r.json()["detail"]
+        assert client.get("/api/sessions").json()["total"] == 0
+
+
 def test_exam_options_list_the_detectable_devices(authed):
     assert authed.get("/api/exam-options").json() == {"devices": list(config.CONTRABAND_CLASSES)}
 

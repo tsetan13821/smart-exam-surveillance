@@ -115,6 +115,9 @@ class SessionManager:
         self.engine_factory = engine_factory or default_engine_factory
         self.logger_factory = logger_factory
         self._lock = threading.RLock()
+        # Held while a state changes and its event goes out, so listeners see
+        # starting -> running -> stopping -> ended in order. Always taken before _lock.
+        self._transition_lock = threading.Lock()
         self._active = None
         self._last = None
         self._listeners = []
@@ -138,8 +141,8 @@ class SessionManager:
             except Exception as e:
                 print(f"SESSION_LISTENER_ERROR: {e}")
 
-    def _emit_state(self, session):
-        self._emit({"type": "state", "session": session.info()})
+    def _emit_state(self, info):
+        self._emit({"type": "state", "session": info})
 
     # ----------------------------------------------------------------- start
     def start(self, student_ids, exam_context=None, source=None):
@@ -149,7 +152,7 @@ class SessionManager:
         session is active and SessionSetupError for invalid students or rules.
         """
         exam_context = normalize_exam_context(exam_context)
-        with self._lock:
+        with self._transition_lock, self._lock:
             if self._active is not None:
                 raise SessionBusyError(f"Session {self._active.id} is {self._active.state}.")
             plan = plan_session(student_ids, self.registry_factory())
@@ -172,20 +175,20 @@ class SessionManager:
             self._active = session
             session.thread.start()
             info = session.info()
-        self._emit_state(session)
+            self._emit_state(info)
         return info
 
     def _run(self, session):
         status = "ended"
         try:
             engine = self.engine_factory(session.plan, session.exam_context, session.logger, session.source)
-            with self._lock:
+            with self._transition_lock, self._lock:
                 session.engine = engine
                 if session.stop_requested:
                     engine.stop()               # stopped while the models were loading
                 else:
                     session.state = "running"
-            self._emit_state(session)
+                    self._emit_state(session.info())
             engine.run()                        # blocks until stopped or the video ends; cleans up
         except Exception as e:
             status = "failed"
@@ -204,29 +207,30 @@ class SessionManager:
                 session.logger.close()
             except Exception:
                 pass
-            with self._lock:
+            with self._transition_lock, self._lock:
                 session.state = status
                 session.ended_at = datetime.now().isoformat()
                 self._last = session
                 if self._active is session:
                     self._active = None
+                self._emit_state(session.info())
             session.done.set()
-            self._emit_state(session)
 
     # ------------------------------------------------------------------ stop
     def stop(self, session_id=None, wait=False, timeout=30.0):
         """Requests the active session to stop. Returns its info."""
-        with self._lock:
+        with self._transition_lock, self._lock:
             session = self._active
             if session is None or (session_id is not None and session.id != session_id):
                 raise NoActiveSessionError("No such running session.")
+            info = session.info()
             if session.state in ("starting", "running"):
                 session.stop_requested = True
                 session.state = "stopping"
                 if session.engine is not None:
                     session.engine.stop()
-            info = session.info()
-        self._emit_state(session)
+                info = session.info()
+                self._emit_state(info)
         if wait:
             session.done.wait(timeout)
             info = session.info()
