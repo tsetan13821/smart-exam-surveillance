@@ -1,162 +1,75 @@
 # main.py
-import uuid
-import sys
-import sqlite3
+"""Command-line entry point: runs one proctoring session in an OpenCV window.
+
+The web API runs sessions through app/session_manager.py instead; both share
+app/session_setup.py for choosing students and loading their face data.
+
+Example:
+  python main.py --student_ids '["1001"]' --exam_context '{"is_paper_exam": true}'
+  python main.py --student_ids '["1001"]' --source benchmarks/clips/live/reading.mp4
+"""
+import argparse
 import json
-import argparse # <-- To parse arguments from launcher
-from app.core import ProctoringApp
-from app.utils.logger import ActivityLogger
-from app.processors.face_recognizer import FaceRecognizer
-from app.utils.student_registry import StudentRegistry
+import sys
+import uuid
+
 import app.utils.database as db
+import config
+from app.core import ProctoringApp
+from app.processors.face_recognizer import FaceRecognizer
+from app.session_manager import normalize_exam_context
+from app.session_setup import SessionSetupError, load_desk_rois, plan_session  # noqa: F401 (re-exported)
+from app.utils.logger import ActivityLogger
+from app.utils.student_registry import StudentRegistry
+from app.video_source import open_source
 
-# Define the main log directory
-LOG_DIRECTORY = "proctoring_logs"
-DESK_ROI_FILE = "desk_rois.json"
-
-
-def load_desk_rois(path=DESK_ROI_FILE):
-    """
-    Loads per-student desk polygons saved by calibrate_rois.py
-    ({student_name: [[x, y], ...]}). Returns {} if the file is missing,
-    empty or invalid, in which case devices go to the nearest student.
-    """
-    try:
-        with open(path, "r") as f:
-            rois = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-    if not isinstance(rois, dict):
-        return {}
-    return {name: pts for name, pts in rois.items()
-            if isinstance(pts, list) and len(pts) >= 3}
 
 
 def main():
-    """
-    Initializes and runs the proctoring application.
-    Receives student IDs and exam context from the launcher.
-    """
-    # --- MODIFIED: Argument Parsing (Phase 4) ---
     parser = argparse.ArgumentParser(description="Proctoring Application Engine")
     parser.add_argument("--student_ids", required=True,
                         help="A JSON string list of student IDs for this session.")
-    # --- NEW ---
     parser.add_argument("--exam_context", required=False, default="{}",
                         help="A JSON string of exam rules (e.g., allowed devices).")
-    # --- END NEW ---
+    parser.add_argument("--source", default=None,
+                        help="Camera index or video file (default: config.CAMERA_INDEX).")
     args = parser.parse_args()
-    
-    logger = None
-    session_id = str(uuid.uuid4())
-    
+
     try:
         student_ids = json.loads(args.student_ids)
-        # --- NEW (Phase 4) ---
-        exam_context = json.loads(args.exam_context)
-        print(f"Applying Exam Context: {exam_context}")
-        # --- END NEW ---
-        
-        if not student_ids:
-            print("FATAL: No student IDs provided from launcher.")
-            sys.exit("Exiting: No student IDs.")
-            
-        print("Session starting with students passed from launcher...")
-        
+        exam_context = normalize_exam_context(json.loads(args.exam_context))
         db.init_database()
-        registry = StudentRegistry()
-        
-        # --- NEW: Load multiple students ---
-        authorized_encodings = {}
-        authorized_student_names = []
-        student_ids_for_db = []
-        
-        print(f"Loading data for {len(student_ids)} student(s)...")
-        
-        for student_id in student_ids:
-            student_data = registry.get_student(student_id)
-            if student_data and student_data.get("status") != "approved":
-                print(f"  > REJECTED: Student {student_id} has status "
-                      f"'{student_data.get('status')}', not 'approved'. Skipping.")
-                continue
-            if student_data and student_data.get('encodings'):
-                student_name = student_data['name']
-                
-                # Add student's name to the authorized list
-                if student_name not in authorized_student_names:
-                    authorized_student_names.append(student_name)
-                    
-                student_ids_for_db.append(student_id)
-                
-                # Add this student's encodings to the main dictionary
-                # This correctly groups encodings for students with the same name
-                if student_name in authorized_encodings:
-                    authorized_encodings[student_name].extend(student_data['encodings'])
-                else:
-                    authorized_encodings[student_name] = student_data['encodings']
-                
-                print(f"  > Loaded: {student_name} ({student_id})")
-            else:
-                print(f"  > WARNING: Could not load data or encodings for student ID {student_id}. Skipping.")
-        
-        if not authorized_encodings:
-            print("FATAL: No valid student encodings could be loaded for the selected IDs.")
-            sys.exit("Exiting: No valid students.")
-            
-        # Convert lists to JSON strings for database logging
-        student_ids_json = json.dumps(student_ids_for_db)
-        student_names_json = json.dumps(authorized_student_names)
-        
-        # --- NEW: Call updated create_session and Logger ---
-        db.create_session(
-            session_id=session_id,
-            student_ids_json=student_ids_json,
-            student_names_json=student_names_json
-        )
-        
-        logger = ActivityLogger(
-            session_id=session_id,
-            student_ids_json=student_ids_json,
-            student_names_json=student_names_json,
-            log_dir=LOG_DIRECTORY
-        )
-        logger.log_activity(f"Application starting for session {session_id}...")
-        
-        # --- NEW: Instantiate FaceRecognizer with all encodings ---
-        face_recognizer = FaceRecognizer(
-            logger=logger,
-            authorized_encodings=authorized_encodings
-        )
-        
-        # --- MODIFIED: Pass exam_context to ProctoringApp (Phase 4) ---
-        rois = load_desk_rois()
-        unknown = [name for name in rois if name not in authorized_student_names]
-        if unknown:
-            print(f"Desk ROIs for students not in this session are ignored: {unknown}")
-        rois = {name: pts for name, pts in rois.items() if name in authorized_student_names}
+        plan = plan_session(student_ids, StudentRegistry())
+    except (json.JSONDecodeError, SessionSetupError, FileNotFoundError) as e:
+        sys.exit(f"Cannot start session: {e}")
 
-        app = ProctoringApp(
-            logger=logger,
-            face_recognizer=face_recognizer,
-            authorized_student_names=authorized_student_names,
-            exam_context=exam_context,
-            rois_data=rois
-        )
+    for s in plan.skipped:
+        print(f"  > Skipped {s['id']}: {s['reason']}")
+    print(f"Students: {', '.join(plan.student_names)} | Exam rules: {exam_context}")
+
+    session_id = str(uuid.uuid4())
+    ids_json, names_json = json.dumps(plan.student_ids), json.dumps(plan.student_names)
+    db.create_session(session_id, ids_json, names_json, exam_context_json=json.dumps(exam_context),
+                      source=args.source)
+    logger = ActivityLogger(session_id, ids_json, names_json, log_dir=config.PROCTORING_LOG_DIR)
+    status = "ended"
+    try:
+        logger.log_activity(f"Application starting for session {session_id}...")
+        video = open_source(args.source, logger=logger)
+        recognizer = FaceRecognizer(logger=logger, authorized_encodings=plan.encodings)
+        app = ProctoringApp(logger=logger, face_recognizer=recognizer,
+                            authorized_student_names=plan.student_names, exam_context=exam_context,
+                            rois_data=plan.rois, video_source=video, display=True)
         app.run()
-        
-    except FileNotFoundError as e:
-        print(f"FATAL ERROR: Missing required file: {e}")
-        if logger:
-            logger.log_alert("FATAL_ERROR", f"Missing required file: {e}")
-    except (sqlite3.Error, Exception) as e:
+    except Exception as e:
+        status = "failed"
         print(f"An unexpected error occurred: {e}")
-        if logger:
-            logger.log_alert("FATAL_ERROR", str(e))
-        print("Application will now exit.")
+        logger.log_alert("FATAL_ERROR", str(e))
     finally:
-        if logger:
-            logger.log_activity("Application shutting down.")
-            logger.close()
+        db.end_session(session_id, status)
+        logger.log_activity("Application shutting down.")
+        logger.close()
+
 
 if __name__ == '__main__':
     main()

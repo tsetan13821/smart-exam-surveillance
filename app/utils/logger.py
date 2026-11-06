@@ -49,6 +49,7 @@ class ActivityLogger:
         print(f"  .jsonl Log: {self.log_file_path}")
         print(f"  Database: {self.db_path}")
         
+        self._listeners = []
         self.log_queue = queue.Queue()
         self.stop_event = threading.Event()
         self.log_thread = threading.Thread(target=self._log_worker, daemon=True)
@@ -130,27 +131,49 @@ class ActivityLogger:
         except Exception as e:
             print(f"LOGGER WARNING: Could not write to action log file: {e}")
 
-    def _write_log_db(self, level, message, alert_type=None, evidence_file=None):
+    def _write_log_db(self, level, message, alert_type=None, evidence_file=None, subject=None, when=None):
         try:
             with sqlite3.connect(self.db_path, timeout=10) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    INSERT INTO alerts (session_id, timestamp, level, alert_type, message, evidence_file)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO alerts (session_id, timestamp, level, alert_type, message, evidence_file, subject)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         self.session_id,
-                        datetime.now().isoformat(),
+                        (when or datetime.now()).isoformat(),
                         level,
                         alert_type,
                         message,
-                        evidence_file
+                        evidence_file,
+                        subject,
                     )
                 )
                 conn.commit()
         except sqlite3.Error as e:
             print(f"LOGGER FATAL: Could not write to database: {e}")
+
+    # --- Live event listeners -------------------------------------------------
+    # The web API subscribes here to push activity, alerts and evidence to the
+    # browser as they happen. Listeners are called on the thread that logged the
+    # event and must return quickly; a failing listener never breaks logging.
+    def add_listener(self, fn):
+        self._listeners.append(fn)
+
+    def remove_listener(self, fn):
+        try:
+            self._listeners.remove(fn)
+        except ValueError:
+            pass
+
+    def _emit(self, entry):
+        event = dict(entry, session_id=self.session_id)
+        for fn in list(self._listeners):
+            try:
+                fn(event)
+            except Exception as e:
+                print(f"LOGGER_LISTENER_ERROR: {e}")
 
     # --- PUBLIC LOGGING METHODS (ASYNC) ---
     def log_detection_debug(self, message):
@@ -166,6 +189,7 @@ class ActivityLogger:
         }
         self.log_queue.put( ("_write_log_jsonl", log_entry) )
         self.log_queue.put( ("_write_log_db", ("INFO", message, "ACTIVITY", None)) )
+        self._emit(dict(log_entry, alert_type="ACTIVITY"))
 
     def log_alert(self, alert_type, message):
         log_entry = {
@@ -176,6 +200,7 @@ class ActivityLogger:
         }
         self.log_queue.put( ("_write_log_jsonl", log_entry) )
         self.log_queue.put( ("_write_log_db", ("ALERT", message, alert_type, None)) )
+        self._emit(log_entry)
 
     def log_human_action(self, action_key, action_value, details_dict=None):
         log_entry = {
@@ -197,19 +222,20 @@ class ActivityLogger:
     def end_frame(self, annotated_frame):
         pending = getattr(self, "_deferred_evidence", None) or []
         self._deferred_evidence = None
-        for alert_type, message, when in pending:
-            self._save_evidence(annotated_frame, alert_type, message, when)
+        for alert_type, message, when, subject in pending:
+            self._save_evidence(annotated_frame, alert_type, message, when, subject)
 
-    def log_evidence(self, frame, alert_type, message):
+    def log_evidence(self, frame, alert_type, message, subject=None):
         """
         Saves an evidence frame (deferred to end_frame() while a frame is being processed).
+        subject: the student the event is about, if any.
         """
         if getattr(self, "_deferred_evidence", None) is not None:
-            self._deferred_evidence.append((alert_type, message, datetime.now()))
+            self._deferred_evidence.append((alert_type, message, datetime.now(), subject))
             return None
-        return self._save_evidence(frame, alert_type, message, datetime.now())
+        return self._save_evidence(frame, alert_type, message, datetime.now(), subject)
 
-    def _save_evidence(self, frame, alert_type, message, when):
+    def _save_evidence(self, frame, alert_type, message, when, subject=None):
         try:
             timestamp_str = when.strftime('%Y%m%d_%H%M%S_%f')
             
@@ -228,14 +254,16 @@ class ActivityLogger:
                 "level": "EVIDENCE",
                 "alert_type": alert_type,
                 "message": message,
-                "evidence_file": evidence_abs_path
+                "evidence_file": evidence_abs_path,
+                "subject": subject,
             }
             
             self.log_queue.put( ("_write_log_jsonl", log_entry) )
             self.log_queue.put( (
                 "_write_log_db",
-                ("EVIDENCE", message, alert_type, evidence_abs_path)
+                ("EVIDENCE", message, alert_type, evidence_abs_path, subject, when)
             ) )
+            self._emit(log_entry)
             return evidence_abs_path
             
         except Exception as e:

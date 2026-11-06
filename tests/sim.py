@@ -50,10 +50,12 @@ class RecordingLogger:
     def __init__(self, clock):
         self.clock = clock
         self.evidence = []   # (seconds since start, alert_type, message)
+        self.subjects = []   # student each evidence record is about (None if unknown)
         self.alerts = []
 
-    def log_evidence(self, frame, alert_type, message):
+    def log_evidence(self, frame, alert_type, message, subject=None):
         self.evidence.append((round(self.clock.elapsed(), 2), alert_type, message))
+        self.subjects.append(subject)
 
     def log_alert(self, alert_type, message):
         self.alerts.append((alert_type, message))

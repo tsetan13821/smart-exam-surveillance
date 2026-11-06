@@ -104,6 +104,10 @@ class TrackedPerson:
         
         self.last_seen = datetime.now()
 
+    def student_name(self):
+        """The recognised student's name, or None for an unknown face."""
+        return self.name if self.name and self.name != "Unknown" else None
+
     def get_display_name(self):
         """Returns the name to be drawn on the box."""
         # --- <<< FIX: Prioritize spoof_id if it exists >>> ---

@@ -1,9 +1,16 @@
-# core/config.py
+# student_registration/src/config.py
 import os
+import sys
+
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+import config as _project_config  # noqa: E402  (the project-level config.py)
 
 # --- File Paths & Config ---
-ENCODING_DB_PATH = ".\\..\\student_encodings.json"
-REGISTRATION_EVIDENCE_DIR = ".\\..\\registrations_for_review"
+# Registration photos go to the folder the proctor console shows them from
+REGISTRATION_EVIDENCE_DIR = _project_config.REGISTRATION_EVIDENCE_DIR
 os.makedirs(REGISTRATION_EVIDENCE_DIR, exist_ok=True)
 
 # Define the yaw angle requirements for each pose

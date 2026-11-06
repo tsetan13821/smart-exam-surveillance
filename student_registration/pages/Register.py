@@ -13,10 +13,10 @@ from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 
 # --- Import from core files ---
 from src.config import (
-    ENCODING_DB_PATH, REGISTRATION_EVIDENCE_DIR, 
+    REGISTRATION_EVIDENCE_DIR,
     POSE_REQUIREMENTS, DEBOUNCE_FRAMES
 )
-from src.database import load_encodings, save_encodings
+from src.database import get_registration, save_registration
 from src.models import get_models
 from src.pose_analysis import calculate_simple_head_pose
 
@@ -77,16 +77,8 @@ class RegistrationTransformer(VideoTransformerBase):
                 print(f"Saved {pose_name} evidence to {evidence_path}")
 
             print(f"Saving registration for {student_id}...")
-            db_data = load_encodings()
-            
-            db_data[student_id] = {
-                "name": student_name, "status": "pending",
-                "encodings": [enc.tolist() for enc in self.captured_encodings.values()],
-                "extracted_id_text": "N/A (Live Capture)",
-                "review_evidence_id": self.review_evidence_id
-            }
-            
-            save_encodings(db_data)
+            save_registration(student_id, student_name, list(self.captured_encodings.values()),
+                              self.review_evidence_id)
             
             print("Registration complete!")
             self.state = "COMPLETE"
@@ -265,8 +257,7 @@ st.divider()
 
 if student_id and student_name:
     
-    db_data = load_encodings()
-    student_record = db_data.get(st.session_state.student_id) 
+    student_record = get_registration(st.session_state.student_id)
     status = student_record.get("status") if student_record else None
 
     # --- Re-added Access Control ---

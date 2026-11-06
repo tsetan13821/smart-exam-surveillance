@@ -5,6 +5,7 @@ from datetime import datetime
 import threading
 import queue
 import time
+from collections import deque
 import numpy as np
 
 # --- Processor Imports ---
@@ -18,6 +19,7 @@ from app.processors.proctoring_analyzer import ProctoringAnalyzer
 
 # --- Drawing Utility ---
 from app.utils.drawing import draw_detections, draw_status_panel, draw_face_annotations, draw_contraband
+from app.video_source import FileSource, open_source
 
 """
 This file is the main orchestrator for the proctoring application.
@@ -28,8 +30,19 @@ class ProctoringApp:
     # --- MODIFIED: __init__ signature updated (Phase 4) ---
     # Added exam_context=None
     def __init__(self, logger, face_recognizer, authorized_student_names: list, exam_context=None,
-                 rois_data=None):
+                 rois_data=None, video_source=None, display=True, publish_jpeg=False):
+        """
+        video_source: a CameraSource/FileSource (see app/video_source.py), or None for
+                      the webcam at config.CAMERA_INDEX.
+        display:      show the annotated feed in an OpenCV window (the CLI); False when
+                      the engine runs as a service behind the web API.
+        publish_jpeg: keep the latest annotated frame as JPEG bytes for streaming.
+        """
         self.logger = logger
+        self.display = display
+        self.publish_jpeg = publish_jpeg
+        # Open the video source first, so a missing camera fails before any threads start
+        self.video_source = video_source if video_source is not None else open_source(logger=logger)
         
         # --- Initialize Processors ---
         self.face_recognizer = face_recognizer
@@ -57,6 +70,16 @@ class ProctoringApp:
         self.processed_frame_lock = threading.Lock()
         self.latest_processed_frame = None
         self.stop_event = threading.Event()
+        self._cleaned_up = False
+
+        # --- Published output (for the web API) ---
+        self.last_classification = "Normal"
+        self._frame_cond = threading.Condition()
+        self._jpeg = None
+        self._jpeg_seq = 0
+        self._status = {}
+        self._processed_times = deque(maxlen=60)
+        self.frames_processed = 0
 
         # --- Heavy-model inference thread ---
         # RT-DETR and InsightFace take hundreds of ms per frame on CPU. Run in
@@ -80,27 +103,6 @@ class ProctoringApp:
         print("Starting processing thread...")
         self.processing_thread = threading.Thread(target=self._processing_worker)
         self.processing_thread.start()
-        print(f"Attempting to open camera at index: {config.CAMERA_INDEX}")
-        self.video_capture = None
-        max_retries = 5
-        for i in range(max_retries):
-            self.video_capture = cv2.VideoCapture(config.CAMERA_INDEX)
-            if self.video_capture.isOpened():
-                ret, frame = self.video_capture.read()
-                if ret and frame is not None:
-                    self.logger.log_activity(f"Webcam opened (attempt {i+1}).")
-                    break
-                else:
-                    self.logger.log_activity(f"Camera opened but failed to read frame (attempt {i+1}/{max_retries}).")
-                    self.video_capture.release()
-                    time.sleep(1)
-            else:
-                self.logger.log_activity(f"Camera init failed (attempt {i+1}/{max_retries}).")
-                time.sleep(1)
-        
-        if not self.video_capture or not self.video_capture.isOpened():
-            self.logger.log_alert("CAMERA_ERROR", f"FATAL: Cannot open webcam at index {config.CAMERA_INDEX}.")
-            raise IOError(f"FATAL: Cannot open webcam at index {config.CAMERA_INDEX}.")
 
     def _inference_worker(self):
         """Runs RT-DETR + InsightFace on the newest frame, as often as they can keep up."""
@@ -182,9 +184,10 @@ class ProctoringApp:
         
         draw_status_panel(frame, final_classification)
         getattr(self.logger, "end_frame", lambda f: None)(frame)
+        self.last_classification = final_classification
         return frame
 
-    # --- Processing Worker Thread (Unchanged) ---
+    # --- Processing Worker Thread ---
     def _processing_worker(self):
         print("Processing worker started.")
         while not self.stop_event.is_set():
@@ -197,47 +200,118 @@ class ProctoringApp:
 
             with self.processed_frame_lock:
                 self.latest_processed_frame = processed_frame
-        
+            self._publish(processed_frame)
+
         print("Processing worker stopping.")
 
-    # --- Main Application Loop (Unchanged) ---
+    # --- Published output ---------------------------------------------------
+    def _publish(self, frame):
+        """Updates the status snapshot and (if enabled) the JPEG for streaming."""
+        now = time.perf_counter()
+        self._processed_times.append(now)
+        self.frames_processed += 1
+        status = self._build_status()
+        jpeg = None
+        if self.publish_jpeg:
+            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            jpeg = buf.tobytes() if ok else None
+        with self._frame_cond:
+            self._status = status
+            if jpeg is not None:
+                self._jpeg = jpeg
+                self._jpeg_seq += 1
+            self._frame_cond.notify_all()
+
+    def _build_status(self):
+        times = self._processed_times
+        fps = (len(times) - 1) / (times[-1] - times[0]) if len(times) > 1 and times[-1] > times[0] else 0.0
+        people = []
+        for p in list(self.person_tracker.tracked_persons.values()):
+            mp = p.mp_result or {}
+            people.append({
+                "track_id": p.id,
+                "name": p.get_display_name(),
+                "is_photo": bool(p.is_spoofing),
+                "liveness": p.liveness_state,
+                "alerts": list(getattr(p, "current_alerts", [])),
+                "yaw": round(float(mp["yaw"]), 1) if mp.get("yaw") is not None else None,
+                "pitch": round(float(mp["pitch"]), 1) if mp.get("pitch") is not None else None,
+                "gaze": mp.get("gaze"),
+            })
+        students = [
+            {"name": name, "present": bool(state.get("is_present")), "ever_present": bool(state.get("ever_present"))}
+            for name, state in sorted(self.proctoring_analyzer.student_presence_state.items())
+        ]
+        return {
+            "classification": self.last_classification,
+            "fps": round(fps, 1),
+            "frames_processed": self.frames_processed,
+            "heavy_model_updates": self.inference_count,
+            "students": students,
+            "people": people,
+        }
+
+    def get_status(self):
+        with self._frame_cond:
+            return dict(self._status)
+
+    def wait_for_jpeg(self, after_seq=0, timeout=1.0):
+        """Waits for a frame newer than after_seq.
+
+        Returns (seq, jpeg bytes), or (after_seq, None) if no new frame arrived in time
+        or the engine is stopping, so callers never resend the same frame.
+        """
+        with self._frame_cond:
+            if self._jpeg_seq <= after_seq:
+                self._frame_cond.wait_for(lambda: self._jpeg_seq > after_seq or self.stop_event.is_set(),
+                                          timeout=timeout)
+            if self._jpeg_seq > after_seq and self._jpeg is not None:
+                return self._jpeg_seq, self._jpeg
+            return after_seq, None
+
+    def stop(self):
+        """Asks run() to finish; safe to call from any thread."""
+        self.stop_event.set()
+        with self._frame_cond:
+            self._frame_cond.notify_all()
+
+    # --- Main Application Loop ---
     def run(self):
-        self.logger.log_activity("Surveillance system started.")
-        while True:
-            if self.stop_event.is_set():
-                break 
+        self.logger.log_activity(f"Surveillance system started ({self.video_source.description}).")
+        try:
+            while not self.stop_event.is_set():
+                frame = self.video_source.read()
+                if frame is None:
+                    if isinstance(self.video_source, FileSource):
+                        self.logger.log_activity("Video file finished.")
+                    else:
+                        print("Error: Failed to grab frame. Exiting.")
+                        self.logger.log_alert("CAMERA_ERROR", "Failed to grab frame.")
+                    break
 
-            ret, frame = self.video_capture.read()
-            if not ret:
-                print("Error: Failed to grab frame. Exiting.")
-                self.logger.log_alert("CAMERA_ERROR", "Failed to grab frame.")
-                break
+                try:
+                    self.frame_queue.put_nowait(frame)
+                except queue.Full:
+                    pass
 
-            live_frame = cv2.flip(frame, 1)
-
-            try:
-                self.frame_queue.put_nowait(live_frame)
-            except queue.Full:
-                pass
-
-            processed_frame_to_show = None
-            with self.processed_frame_lock:
-                if self.latest_processed_frame is not None:
-                    processed_frame_to_show = self.latest_processed_frame
-
-            display_frame = processed_frame_to_show if processed_frame_to_show is not None else live_frame
-            cv2.imshow("Production-Ready Proctoring System", display_frame)
-
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                self.logger.log_activity("User pressed 'q'. Shutting down.")
-                break
-        self.cleanup()
+                if self.display:
+                    with self.processed_frame_lock:
+                        shown = self.latest_processed_frame
+                    cv2.imshow("Production-Ready Proctoring System", shown if shown is not None else frame)
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        self.logger.log_activity("User pressed 'q'. Shutting down.")
+                        break
+        finally:
+            self.cleanup()
 
     # --- Cleanup (Unchanged, but includes previous bugfix) ---
     def cleanup(self):
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
         print("Shutting down system... signaling worker thread...")
         self.logger.log_core_debug("Cleanup sequence started. Signaling worker thread.") 
-        self.stop_event.set()
+        self.stop()
         self.inference_stop.set()
 
         try:
@@ -252,12 +326,12 @@ class ProctoringApp:
         self.logger.log_core_debug("Worker thread stopped. Releasing resources.") 
 
         try:
-            if hasattr(self, "video_capture") and self.video_capture is not None:
-                self.video_capture.release()
-                self.logger.log_core_debug("Video capture released.") 
+            if getattr(self, "video_source", None) is not None:
+                self.video_source.release()
+                self.logger.log_core_debug("Video source released.")
         except Exception as e:
-            print(f"[CLEANUP] Error releasing video capture: {e}")
-            self.logger.log_core_debug(f"Error releasing video capture: {e}") 
+            print(f"[CLEANUP] Error releasing video source: {e}")
+            self.logger.log_core_debug(f"Error releasing video source: {e}")
 
         try:
             if hasattr(self, "mediapipe_processor") and self.mediapipe_processor is not None:
@@ -271,8 +345,9 @@ class ProctoringApp:
             print(f"[CLEANUP] Error closing MediaPipe processor: {e}")
             self.logger.log_core_debug(f"Error closing MediaPipe processor: {e}") 
 
-        try:
-            cv2.destroyAllWindows()
-            self.logger.log_core_debug("OpenCV windows destroyed.") 
-        except Exception:
-            pass
+        if self.display:
+            try:
+                cv2.destroyAllWindows()
+                self.logger.log_core_debug("OpenCV windows destroyed.")
+            except Exception:
+                pass

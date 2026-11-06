@@ -168,13 +168,13 @@ class PersonAnalyzer:
                             log_msg = f"{person_display_name} identified as a image. Now tracking as {image_id}."
                             self.logger.log_liveness_debug(log_msg, person_display_name)
                             person.spoof_id = image_id # Note: This is still 'spoof_id' in your TrackedPerson model
-                            self.logger.log_evidence(frame, alert_key, log_msg)
+                            self.logger.log_evidence(frame, alert_key, log_msg, subject=person.student_name())
                             person.alert_has_been_logged[alert_key] = True
                         
                         # Standard handling for other alerts (if you add any back)
                         elif alert_key != "IMAGE_DETECTED":
                             log_msg = f"({person_logging_name}) {message} (Duration: {duration:.1f}s)"
-                            self.logger.log_evidence(frame, alert_key, log_msg)
+                            self.logger.log_evidence(frame, alert_key, log_msg, subject=person.student_name())
                             person.alert_has_been_logged[alert_key] = True
         else:
             if person.alert_start_times[alert_key] is not None:

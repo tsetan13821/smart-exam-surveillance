@@ -5,20 +5,36 @@
 This file centralizes all tunable parameters for the proctoring application.
 """
 
+import os
+
 import numpy as np
 
 # --------------------------------------------------------------------------
 # 1. CORE APPLICATION & DATABASE
 # --------------------------------------------------------------------------
 
+# Data files live next to this file, whichever folder an app is started from.
+# Each location can be overridden with a SMARTSQUAD_* environment variable
+# (used by the end-to-end tests and the Docker demo to keep their data separate).
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # The index of the webcam (e.g., 0 for built-in, 1 for external)
 CAMERA_INDEX = 0
 
-# File path for the main student encoding database
-STUDENT_DATABASE_FILE = "student_encodings.json"
+# Legacy JSON student registry; imported into the database once, then unused
+STUDENT_DATABASE_FILE = os.environ.get("SMARTSQUAD_LEGACY_REGISTRY", os.path.join(BASE_DIR, "student_encodings.json"))
 
-# File path for the SQLite database that stores session and alert logs
-DATABASE_FILE = "proctoring_session.db"
+# SQLite database: students, sessions, alerts, proctor accounts
+DATABASE_FILE = os.environ.get("SMARTSQUAD_DB", os.path.join(BASE_DIR, "proctoring_session.db"))
+
+# Registration photos (front/left/right) shown to the proctor for approval
+REGISTRATION_EVIDENCE_DIR = os.environ.get("SMARTSQUAD_REGISTRATIONS_DIR", os.path.join(BASE_DIR, "registrations_for_review"))
+
+# Session logs; evidence screenshots go to its evidence/ subfolder
+PROCTORING_LOG_DIR = os.environ.get("SMARTSQUAD_LOG_DIR", os.path.join(BASE_DIR, "proctoring_logs"))
+
+# Recorded videos that can be used as a session's video source (demos, testing)
+DEMO_VIDEO_DIR = os.environ.get("SMARTSQUAD_DEMO_VIDEOS", os.path.join(BASE_DIR, "demo_videos"))
 
 # --------------------------------------------------------------------------
 # 2. LOGGING DIRECTORIES
@@ -26,22 +42,22 @@ DATABASE_FILE = "proctoring_session.db"
 # These directories will be created automatically if they don't exist.
 
 # Directory for general debug logs from core.py
-CORE_LOGS_DIR = "logs/core"
+CORE_LOGS_DIR = os.path.join(BASE_DIR, "logs", "core")
 
 # Directory for MediaPipe debug logs (landmark failures, etc.)
-MEDIAPIPE_LOGS_DIR = "logs/mediapipe"
+MEDIAPIPE_LOGS_DIR = os.path.join(BASE_DIR, "logs", "mediapipe")
 
 # Directory for object detection debug logs (raw detections)
-OBJECT_DETECTOR_LOGS_DIR = "logs/detection"
+OBJECT_DETECTOR_LOGS_DIR = os.path.join(BASE_DIR, "logs", "detection")
 
 # Directory for liveness-specific debug logs (timers, spoof checks)
-LIVENESS_LOGS_DIR = "logs/liveness"
+LIVENESS_LOGS_DIR = os.path.join(BASE_DIR, "logs", "liveness")
 
 # Directory for face recognition similarity scores
-SIMILARITY_LOGS_DIR = "logs/similarity"
+SIMILARITY_LOGS_DIR = os.path.join(BASE_DIR, "logs", "similarity")
 
 # Directory for detailed human action logs (pose, gaze, etc.)
-HUMAN_ACTION_LOG_DIR = "logs/human_actions"
+HUMAN_ACTION_LOG_DIR = os.path.join(BASE_DIR, "logs", "human_actions")
 
 
 # --------------------------------------------------------------------------
@@ -79,7 +95,7 @@ CLASSES_TO_DETECT = [
 ]
 
 # Subset of detected classes that are considered "contraband". Any of them can
-# be allowed for a particular exam from the launcher (exam context).
+# be allowed for a particular exam when the session is started (exam context).
 CONTRABAND_CLASSES = [
     'cell phone',
     'laptop',
