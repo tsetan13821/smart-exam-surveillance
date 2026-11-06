@@ -22,7 +22,7 @@ A real-time, AI-assisted exam proctoring system. It watches a webcam feed of one
 |---|---|
 | **Identity verification** | InsightFace detects faces and produces 512-d ArcFace embeddings, which are matched by cosine similarity against the embeddings of the students enrolled in the session. Faces below the similarity threshold are labelled `Unknown`. |
 | **Head pose and gaze** | MediaPipe FaceMesh (468 landmarks + iris, up to 4 faces) gives facial landmarks for every student in view. Head yaw/pitch is solved with OpenCV `solvePnP`, and a coarse left/centre/right gaze label comes from the nose position relative to the eyes. Eye and mouth aspect ratios (EAR/MAR) give blink and mouth-open state. |
-| **Contraband detection** | RT-DETR (`PekingU/rtdetr_r50vd`, COCO classes) detects people, phones, laptops, books, keyboards and mice. Each item is assigned to the student whose desk region contains it (from `calibrate_rois.py`), or to the nearest student if no regions are set. An item must be seen for 2 s before it counts, so one-frame misdetections are ignored. |
+| **Contraband detection** | RT-DETR (`PekingU/rtdetr_r50vd`, COCO classes) detects people, phones, laptops, books, keyboards and mice. Each item is assigned to the student whose desk region contains it (from `calibrate_rois.py`). Without regions, it goes to the only person in view, or with several people to the nearest face within four face heights, so a phone held low in the lap still counts. An item must be seen for 2 s before it counts, so one-frame misdetections are ignored. |
 | **Liveness / anti-spoofing** | Each face has to prove it is live by blinking. A blink is a dip in EAR well below that person's own rolling open-eye level, followed by recovery; the required dip scales with how noisy that face's landmarks are. A new face that hasn't blinked within 8 s, or a confirmed face that hasn't blinked for 30 s, is treated as a photo. Head movement and pixel motion are deliberately not used as proof of life, because a photo on a moving phone produces both. |
 | **Context-aware rules** | The proctor sets the exam context at launch: open-book exams allow books, paper-based exams allow looking down at the desk, and specific devices can be allowed. Alerts take this context into account. |
 | **Live monitoring and review** | The proctor console streams the annotated video and pushes alerts to the browser as they happen. Every alert saves a screenshot and a database record; each session gets a report with attendance, breaks and incidents per student, with the evidence images. |
@@ -222,7 +222,7 @@ A session can also be run without the web console, in an OpenCV window (press `q
 The image runs the API and console on CPU with the model weights built in, so nothing else needs installing. A container can't reach the host's webcam on Windows or macOS, so in Docker the console proctors recorded videos only.
 
 ```powershell
-Copy-Item .env.example .env          # then set SMARTSQUAD_ADMIN_PASSWORD in .env
+Copy-Item .env.example .env          # then set SMARTSQUAD_ADMIN_PASSWORD and TZ (your timezone) in .env
 New-Item -ItemType Directory -Force demo_videos
 # copy one or more .mp4 recordings into demo_videos
 docker compose up --build            # first build downloads about 2 GB; then open http://localhost:8000

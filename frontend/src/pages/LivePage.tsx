@@ -150,7 +150,7 @@ function VideoCard({ session, live, running }: { session: SessionInfo; live: Liv
             {session.state === "starting" && <p className="text-xs text-slate-500">This takes 10–20 seconds on a CPU.</p>}
           </div>
         )}
-        {live && (
+        {running && live && (
           // Bottom edge: the engine draws its own status text in the frame's top-left corner
           <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-slate-950/70 to-transparent p-3">
             <Badge tone={normal ? "success" : "danger"} className="text-sm">

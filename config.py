@@ -248,8 +248,10 @@ CHEATING_DEVICE_PERSISTENCE_SEC = 2.0
 # Gaps shorter than this between detections still count as one continuous sighting
 CHEATING_DEVICE_GAP_SEC = 3.0
 
-# Without desk ROIs (calibrate_rois.py), a device is assigned to the nearest
-# student within this many pixels
+# Without desk ROIs (calibrate_rois.py), a device belongs to the only person in
+# view, or with several people to the nearest face within this many face
+# heights (at least CHEATING_DEVICE_MAX_DISTANCE_PX)
+CHEATING_DEVICE_MAX_DISTANCE_FACES = 4.0
 CHEATING_DEVICE_MAX_DISTANCE_PX = 250
 
 # --- Rule Engine Thresholds (in seconds) ---

@@ -26,7 +26,8 @@ function withSession(status: ActiveStatus | null, session: SessionInfo): ActiveS
     state: session.state,
     session,
     last_session: null,
-    live: sameSession && session.state === "running" ? (status?.live ?? null) : null,
+    // While stopping, keep the last live status so presence doesn't flip to "not seen"
+    live: sameSession && (session.state === "running" || session.state === "stopping") ? (status?.live ?? null) : null,
   };
 }
 
